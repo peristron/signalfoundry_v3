@@ -106,7 +106,7 @@ SENTIMENT_ANALYSIS_TOP_N = 5000
 URL_SCRAPE_RATE_LIMIT_SECONDS = 1.0
 PROGRESS_UPDATE_MIN_INTERVAL = 100
 NPMI_MIN_FREQ = 3
-MAX_FILE_SIZE_MB = 1024
+MAX_FILE_SIZE_MB = 200
 
 # regex patterns
 HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -214,6 +214,7 @@ class StreamScanner:
         self.entity_counts = Counter() # NER lite storage
         self.evidence_docs: List[Dict[str, Any]] = []
         self.evidence_limit_reached = False
+        self.dashboard_summary: Dict[str, Any] = {}
         
         self.DOC_BATCH_SIZE = doc_batch_size
         self.limit_reached = False
@@ -291,6 +292,7 @@ class StreamScanner:
             "doc_freqs": dict(self.doc_freqs),
             "evidence_docs": self.evidence_docs,
             "evidence_limit_reached": self.evidence_limit_reached,
+            "dashboard_summary": self.dashboard_summary,
         }
         return json.dumps(data)
 
@@ -317,6 +319,7 @@ class StreamScanner:
             self.doc_freqs = Counter(data.get("doc_freqs", {}))
             self.evidence_docs = data.get("evidence_docs", [])[:MAX_EVIDENCE_DOCS]
             self.evidence_limit_reached = data.get("evidence_limit_reached", False)
+            self.dashboard_summary = data.get("dashboard_summary", {})
             
             raw_temp = data.get("temporal_counts", {})
             self.temporal_counts = defaultdict(Counter)
@@ -2886,6 +2889,128 @@ def build_ai_insight_context(insight_df: pd.DataFrame, max_cards: int = 6) -> st
         )
     return "\n".join(lines)
 
+
+def build_dashboard_next_steps(
+    scanner: StreamScanner,
+    insight_df: pd.DataFrame,
+    has_temporal: bool,
+    has_categories: bool,
+) -> List[str]:
+    steps = []
+    if not insight_df.empty:
+        high_conf = insight_df[insight_df["Confidence"].isin(["High", "Medium"])]
+        if not high_conf.empty:
+            top_signal = str(high_conf.iloc[0]["Signal"])
+            steps.append(f"Start with the evidence card for '{top_signal}'.")
+        pain_or_blocker = insight_df[
+            insight_df["Signal Type"].isin(["Pain / Friction", "Blocker / Constraint"])
+        ]
+        if not pain_or_blocker.empty:
+            steps.append("Review pain and blocker cards before interpreting maturity scores.")
+    if has_categories:
+        steps.append("Use Contrastive Analysis to compare stakeholder groups or source types.")
+    if has_temporal:
+        steps.append("Use Temporal Drift to see what is rising or fading over time.")
+    if scanner.entity_counts:
+        steps.append("Check Entities to confirm which people, systems, or organizations dominate the corpus.")
+    if not steps:
+        steps.append("Confirm the word cloud and top terms look sane before deeper interpretation.")
+    return steps[:4]
+
+
+def render_executive_signal_dashboard(
+    scanner: StreamScanner,
+    combined_counts: Counter,
+    text_stats: Dict,
+    insight_df: pd.DataFrame,
+):
+    st.subheader("🎛️ Executive Signal Dashboard")
+    st.caption(
+        "A first-pass sensemaking layer: what the corpus seems to be about, where the strongest signals are, "
+        "and which deeper views are worth opening next."
+    )
+
+    has_temporal = bool(scanner.temporal_counts)
+    has_categories = bool(scanner.category_counts)
+    high_conf_count = 0
+    if not insight_df.empty:
+        high_conf_count = int(insight_df["Confidence"].isin(["High", "Medium"]).sum())
+
+    metric_cols = st.columns(5)
+    metric_cols[0].metric("Rows", f"{text_stats['Total Rows']:,}")
+    metric_cols[1].metric("Tokens", f"{text_stats['Total Tokens']:,}")
+    metric_cols[2].metric("Insight Cards", f"{len(insight_df):,}")
+    metric_cols[3].metric("Evidence Snippets", f"{len(scanner.evidence_docs):,}")
+    metric_cols[4].metric("Groups / Dates", f"{len(scanner.category_counts)} / {len(scanner.temporal_counts)}")
+
+    if scanner.evidence_limit_reached:
+        st.warning(
+            "Evidence snippets hit the retention cap. Counts still reflect the full scan, "
+            "but representative excerpts are based on the retained sample."
+        )
+
+    left_col, mid_col, right_col = st.columns([1.05, 1.1, 1.05])
+
+    with left_col:
+        st.markdown("#### Strongest Signals")
+        if insight_df.empty:
+            st.info("Scan more content, or reduce filtering, to generate insight cards.")
+        else:
+            for _, row in insight_df.head(4).iterrows():
+                st.markdown(f"**{row['Signal']}**")
+                st.caption(
+                    f"{row['Signal Type']} · {row['Confidence']} confidence · "
+                    f"support {row['Evidence Strength']}"
+                )
+
+    with mid_col:
+        st.markdown("#### Signal Mix")
+        if insight_df.empty:
+            st.caption("No signal mix yet.")
+        else:
+            mix_df = (
+                insight_df["Signal Type"]
+                .value_counts()
+                .rename_axis("Signal Type")
+                .reset_index(name="Cards")
+            )
+            if alt is not None:
+                chart = alt.Chart(mix_df).mark_bar().encode(
+                    x=alt.X("Cards:Q", title="Cards"),
+                    y=alt.Y("Signal Type:N", sort="-x", title=None),
+                    tooltip=["Signal Type", "Cards"],
+                ).properties(height=max(160, 28 * len(mix_df)))
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.dataframe(mix_df, use_container_width=True, hide_index=True)
+
+    with right_col:
+        st.markdown("#### What To Do Next")
+        for step in build_dashboard_next_steps(scanner, insight_df, has_temporal, has_categories):
+            st.write(f"- {step}")
+        if high_conf_count:
+            st.success(f"{high_conf_count} insight card(s) have medium/high confidence.")
+        else:
+            st.info("Treat current outputs as early leads until more evidence accumulates.")
+
+    with st.expander("At-a-glance corpus fingerprint", expanded=False):
+        top_words = ", ".join([f"{w} ({c})" for w, c in combined_counts.most_common(15)])
+        top_entities = ", ".join([f"{e} ({c})" for e, c in scanner.entity_counts.most_common(10)])
+        top_phrases = ", ".join([
+            f"{w1} {w2} ({c})"
+            for (w1, w2), c in scanner.global_bigrams.most_common(10)
+        ])
+        st.markdown("**Top terms**")
+        st.write(top_words or "No terms available.")
+        st.markdown("**Top phrases**")
+        st.write(top_phrases or "No bigrams available.")
+        st.markdown("**Top entities**")
+        st.write(top_entities or "No entities detected.")
+
+        if scanner.dashboard_summary:
+            st.markdown("**Offline harvester summary**")
+            st.json(scanner.dashboard_summary, expanded=False)
+
 def render_workflow_guide():
     with st.expander("📘 Comprehensive App Guide: How to use this Tool", expanded=False):
         st.markdown("""
@@ -4083,6 +4208,13 @@ with tab_work:
         
         # calculate stats upfront
         text_stats = calculate_text_stats(combined_counts, scanner.total_rows_processed)
+        insight_df = build_insight_cards(
+            scanner,
+            combined_counts,
+            expected_terms_raw=st.session_state.get("insight_expected_terms", ""),
+            top_n=10,
+        )
+        render_executive_signal_dashboard(scanner, combined_counts, text_stats, insight_df)
         render_auto_insights(scanner, proc_conf)
         # main tabs
         tab_insight, tab_main, tab_theme, tab_trend, tab_ent, tab_key, tab_mat = st.tabs([
