@@ -3090,6 +3090,132 @@ def build_ai_insight_context(insight_df: pd.DataFrame, max_cards: int = 6) -> st
     return "\n".join(lines)
 
 
+def concise_sentence(text: str, max_chars: int = 220) -> str:
+    clean = " ".join(str(text).split())
+    if len(clean) <= max_chars:
+        return clean
+    clipped = clean[:max_chars].rsplit(" ", 1)[0].rstrip()
+    return f"{clipped}..."
+
+
+def first_sentence(text: str, max_chars: int = 180) -> str:
+    clean = " ".join(str(text).split())
+    match = re.search(r"(?<=[.!?])\s+", clean)
+    sentence = clean[:match.start()].strip() if match else clean
+    return concise_sentence(sentence, max_chars)
+
+
+def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, Any]:
+    if insight_df.empty:
+        return {
+            "summary": "Not enough signal yet to describe the shape of this resource.",
+            "families": [],
+            "key_insights": [],
+        }
+
+    usable = insight_df[
+        ~insight_df["Signal Type"].isin(["Absence / Weak Signal", "Low-Specificity Signal"])
+    ].copy()
+    if usable.empty:
+        usable = insight_df.copy()
+
+    confidence_weight = {"High": 3.0, "Medium": 1.5, "Low": 0.5}
+    usable["Shape Weight"] = (
+        usable["Evidence Strength"].fillna(0).astype(float)
+        + usable["Distinctiveness"].fillna(0).astype(float) * 3
+        + usable["Confidence"].map(confidence_weight).fillna(0.5)
+    )
+
+    family_rows = (
+        usable.groupby("Signal Type", as_index=False)
+        .agg(
+            Weight=("Shape Weight", "sum"),
+            Cards=("Signal", "count"),
+            TopSignal=("Signal", "first"),
+        )
+        .sort_values("Weight", ascending=False)
+        .head(4)
+    )
+    families = family_rows.to_dict("records")
+
+    if families:
+        family_names = [str(item["Signal Type"]) for item in families[:3]]
+        if len(family_names) == 1:
+            family_phrase = family_names[0]
+        elif len(family_names) == 2:
+            family_phrase = f"{family_names[0]} and {family_names[1]}"
+        else:
+            family_phrase = f"{family_names[0]}, {family_names[1]}, and {family_names[2]}"
+        summary = (
+            f"This resource appears to be shaped mainly by {family_phrase}. "
+            "Treat this as a first-pass synthesis: use the supporting evidence below "
+            "to confirm, revise, or reject the interpretation."
+        )
+    else:
+        summary = (
+            "This resource has candidate signals, but they do not yet cluster into a clear shape. "
+            "Review the evidence cards and consider adjusting cleaning settings or stopwords."
+        )
+
+    key_rows = usable.sort_values("Shape Weight", ascending=False).head(top_n)
+    key_insights = []
+    for _, row in key_rows.iterrows():
+        key_insights.append({
+            "Signal": str(row["Signal"]),
+            "Signal Type": str(row["Signal Type"]),
+            "Confidence": str(row["Confidence"]),
+            "Evidence Strength": int(row["Evidence Strength"]),
+            "Interpretation": first_sentence(row["Interpretation"], 220),
+            "Evidence": concise_sentence(row["Representative Evidence"], 320),
+            "Question": str(row["Follow-up Question"]),
+        })
+
+    return {
+        "summary": summary,
+        "families": families,
+        "key_insights": key_insights,
+    }
+
+
+def render_resource_shape_panel(insight_df: pd.DataFrame):
+    shape = build_resource_shape(insight_df)
+
+    st.subheader("🧭 Resource Shape")
+    st.caption(
+        "A plain-language synthesis of the strongest signal families. Start here, then inspect the supporting cards."
+    )
+
+    with st.container(border=True):
+        st.markdown(f"**First-pass read:** {shape['summary']}")
+
+        if shape["families"]:
+            family_df = pd.DataFrame(shape["families"])
+            family_df = family_df.rename(columns={
+                "Signal Type": "Signal Family",
+                "TopSignal": "Example Signal",
+            })
+            st.dataframe(
+                family_df[["Signal Family", "Cards", "Example Signal"]],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        if shape["key_insights"]:
+            st.markdown("#### Key Insights")
+            for idx, item in enumerate(shape["key_insights"], start=1):
+                with st.expander(
+                    f"{idx}. {item['Signal Type']} · {item['Signal']}",
+                    expanded=(idx <= 3),
+                ):
+                    st.write(item["Interpretation"])
+                    st.markdown("**Evidence preview**")
+                    st.write(item["Evidence"])
+                    st.markdown("**Question to carry forward**")
+                    st.info(item["Question"])
+        else:
+            st.info("No key insights yet. Scan more content or review cleaning settings.")
+
+
 def build_dashboard_next_steps(
     scanner: StreamScanner,
     insight_df: pd.DataFrame,
@@ -3098,10 +3224,11 @@ def build_dashboard_next_steps(
 ) -> List[str]:
     steps = []
     if not insight_df.empty:
+        steps.append("Start with Resource Shape to get the top-level synthesis before opening individual cards.")
         high_conf = insight_df[insight_df["Confidence"].isin(["High", "Medium"])]
         if not high_conf.empty:
             top_signal = str(high_conf.iloc[0]["Signal"])
-            steps.append(f"Start with the evidence card for '{top_signal}'.")
+            steps.append(f"Then inspect the supporting evidence card for '{top_signal}'.")
         pain_or_blocker = insight_df[
             insight_df["Signal Type"].isin(["Pain / Friction", "Blocker / Constraint"])
         ]
@@ -3218,7 +3345,7 @@ def render_workflow_guide():
         st.markdown("""
         ### 🌟 What is Signal Foundry?
 
-        Signal Foundry turns messy text into structured signal. Feed it PDFs, CSVs, transcripts, PowerPoints, pasted notes, URLs, or pre-computed harvester sketches and it will surface recurring language, relationships, themes, entities, maturity signals, and evidence-backed insight cards.
+        Signal Foundry turns messy text into structured signal. Feed it PDFs, CSVs, transcripts, PowerPoints, pasted notes, URLs, or pre-computed harvester sketches and it will surface recurring language, relationships, themes, entities, maturity signals, a top-level resource shape, key insights, and supporting evidence cards.
 
         It is designed for fast exploratory sensemaking:
 
@@ -3238,28 +3365,31 @@ def render_workflow_guide():
         1. **Executive Signal Dashboard**  
            Start here. It summarizes corpus size, evidence coverage, strongest signals, signal-type mix, and suggested next steps.
 
-        2. **Insight Engine**  
-           Review evidence-backed cards. These connect statistical signals to interpretation, confidence, representative excerpts, and follow-up questions.
+        2. **Resource Shape**  
+           Read this first inside the Insight Engine. It groups the strongest signals into a short synthesis of what the uploaded resource appears to be about.
 
-        3. **Word Cloud & Stats**  
+        3. **Supporting Insight Cards**  
+           Use these to inspect the evidence behind the synthesis. Cards connect statistical signals to interpretation, confidence, representative excerpts, and follow-up questions.
+
+        4. **Word Cloud & Stats**  
            Confirm the scan looks sane. If boilerplate or junk dominates, adjust stopwords and rescan.
 
-        4. **Themes**  
+        5. **Themes**  
            Inspect theme evidence cards, frequency-vs-distinctiveness, missing expected signals, category contrasts, and temporal drift.
 
-        5. **Keyphrases**  
+        6. **Keyphrases**  
            Use TF-IDF to find words that are unusually specific to this corpus.
 
-        6. **Entities**  
+        7. **Entities**  
            Check which people, organizations, systems, programs, places, or named concepts keep appearing.
 
-        7. **Network Graph**  
+        8. **Network Graph**  
            Explore relationships between terms after the core signals make sense.
 
-        8. **Maturity**  
+        9. **Maturity**  
            Use this when the source material fits one of the maturity lenses.
 
-        9. **AI Analyst**  
+        10. **AI Analyst**  
            Use last. It works best when the visible dashboard and evidence cards already look reasonable.
 
         ---
@@ -3270,11 +3400,12 @@ def render_workflow_guide():
 
         Best for most users.
 
-        1. Upload one or more files in the sidebar.
-        2. Keep **Clear previous data** enabled unless intentionally combining scans.
-        3. Leave default cleaning settings on for the first pass.
-        4. Click the scan button.
-        5. Start with the **Executive Signal Dashboard**.
+        1. Open **Workspace**.
+        2. Upload one or more files, paste text/URLs, or load an offline sketch.
+        3. Keep **Clear previous data** enabled unless intentionally combining scans.
+        4. Leave default cleaning settings on for the first pass.
+        5. Click the scan button.
+        6. Start with the **Executive Signal Dashboard**, then read **Resource Shape** in the Insight Engine.
 
         #### Path B - Structured Files
 
@@ -3314,7 +3445,12 @@ def render_workflow_guide():
 
         ### 💡 How to Read the Insight Engine
 
-        Each insight card includes:
+        The Insight Engine now has two layers:
+
+        1. **Resource Shape** gives a short synthesis of the uploaded material: the main signal families and the strongest key insights.
+        2. **Supporting Insight Cards** show the evidence behind that synthesis.
+
+        Each supporting card includes:
 
         - **Signal:** the phrase or concept being surfaced
         - **Signal Type:** likely analytical category
@@ -3336,7 +3472,7 @@ def render_workflow_guide():
         - Contradiction / Tension
         - Absence / Weak Signal
 
-        These are analytical leads, not final conclusions.
+        The Resource Shape is a first-pass synthesis, not a final conclusion. The supporting cards are analytical leads that help you verify or challenge it.
 
         ---
 
@@ -3346,7 +3482,10 @@ def render_workflow_guide():
 
         Useful moves:
 
-        - Look for high-confidence insight cards first.
+        - Read Resource Shape first.
+        - Use Key Insights to decide what deserves attention.
+        - Open supporting evidence cards before making claims.
+        - Look for high-confidence insight cards after the top-level synthesis.
         - Compare frequent terms against distinctive terms.
         - Enter expected concepts to see what is missing.
         - Use category comparison when different stakeholder groups are present.
@@ -4643,6 +4782,13 @@ with tab_work:
                     "Not enough evidence yet to build insight cards. Scan more text or reduce filtering."
                 )
             else:
+                render_resource_shape_panel(insight_df)
+                st.divider()
+                st.subheader("🔎 Supporting Insight Cards")
+                st.caption(
+                    "Use these cards to inspect the evidence behind the Resource Shape. "
+                    "They are supporting leads, not the final answer."
+                )
                 signal_type_filter = st.multiselect(
                     "Filter by signal type",
                     sorted(insight_df["Signal Type"].unique()),
