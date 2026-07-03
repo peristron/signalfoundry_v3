@@ -106,7 +106,7 @@ SENTIMENT_ANALYSIS_TOP_N = 5000
 URL_SCRAPE_RATE_LIMIT_SECONDS = 1.0
 PROGRESS_UPDATE_MIN_INTERVAL = 100
 NPMI_MIN_FREQ = 3
-MAX_FILE_SIZE_MB = 200
+MAX_FILE_SIZE_MB = 1024
 
 # regex patterns
 HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -4104,14 +4104,9 @@ with st.sidebar:
 
 # --- TABS LAYOUT ---
 #>>>>>>>>>>>>>>>>
-#>>>>>>>>>>>>>>>>
-tab_work, tab_learn = st.tabs(["🚀 Scan Workspace", "📚 Learn / Use Cases"])
+tab_learn, tab_work = st.tabs(["📚 Start Here / Learn", "🚀 Workspace"])
 
-# 1. THE WORKSPACE TAB (Main Engine)
-with tab_work:
-#<<<<<<<<<<<<<<<<
-#>>>>>>>>>>>>>>>>
-# 2. THE LEARNING TAB (Guides, Examples)
+# 1. THE LEARNING TAB (Guides, Examples)
 with tab_learn:
     render_workflow_guide()
     render_maturity_guide()
@@ -4119,16 +4114,36 @@ with tab_learn:
     render_neurotech_case_study()
     render_lit_case_study()
     render_analyst_help()
+
+# 2. THE WORKSPACE TAB (Main Engine)
+with tab_work:
 #<<<<<<<<<<<<<<<<
-#<<<<<<<<<<<<<<<<
+    st.subheader("🚀 Scan Workspace")
+    st.caption(
+        "Upload or paste source material in the sidebar, then scan it here. "
+        "If the sidebar upload does not appear below, use this workspace uploader instead."
+    )
+
+    workspace_files = st.file_uploader(
+        "Workspace file upload",
+        type=["csv", "xlsx", "vtt", "txt", "json", "pdf", "pptx"],
+        accept_multiple_files=True,
+        key="workspace_scan_upload",
+        help="Use this if files uploaded in the sidebar do not appear in the scanning area.",
+    )
+
     with st.expander("🛠️ Data Refinery (only if you need to split very large data files; **NOTE: sanitize first**)"):
-        ref_file = st.file_uploader("CSV to Refine/split", type=['csv'])
+        ref_file = st.file_uploader("CSV to Refine/split", type=['csv'], key="refinery_csv_upload")
         if ref_file and st.button("🚀 Run Refinery"):
             zip_data = perform_refinery_job(ref_file, 50000, clean_conf)
             if zip_data: st.download_button("Download ZIP", zip_data, "refined.zip", "application/zip")
 
     # --scanning phase
-    all_inputs = list(uploaded_files) if uploaded_files else []
+    all_inputs = []
+    if uploaded_files:
+        all_inputs.extend(list(uploaded_files))
+    if workspace_files:
+        all_inputs.extend(list(workspace_files))
     if url_input:
         for u in url_input.split('\n'):
             if u.strip(): 
@@ -4137,6 +4152,9 @@ with tab_learn:
                     all_inputs.append(VirtualFile(f"url_{hash(u)}.txt", txt))
                     time.sleep(URL_SCRAPE_RATE_LIMIT_SECONDS) # RATE LIMITING
     if manual_input: all_inputs.append(VirtualFile("manual.txt", manual_input))
+
+    if not all_inputs:
+        st.info("Upload a file in the sidebar or the Workspace uploader above to begin scanning.")
 
     if all_inputs:
         st.subheader("🚀 Scanning Phase")
