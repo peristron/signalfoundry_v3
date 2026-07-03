@@ -2738,9 +2738,10 @@ SEMANTIC_SIGNAL_FAMILIES = {
     "Embodiment / Lived Experience": {
         "markers": {
             "body", "bodies", "physical", "touch", "touched", "hand", "hands",
-            "walk", "walking", "muscles", "breath", "breathe", "air", "face",
-            "voice", "space", "near", "far", "sense", "felt", "feel", "pain",
-            "room", "cell", "experience", "direct", "surface",
+            "walk", "walking", "muscles", "breath", "breathe", "face",
+            "voice", "near", "far", "felt", "feel", "pain", "experience",
+            "direct", "silence", "hearing", "see", "seen", "saw", "steady",
+            "stumbled", "pressed", "button",
         },
         "interpretation": (
             "This suggests a lived or embodied dimension: how people physically experience "
@@ -2792,7 +2793,8 @@ SEMANTIC_SIGNAL_FAMILIES = {
         "markers": {
             "alike", "same", "identical", "uniform", "standard", "standardized",
             "template", "common", "conform", "homogeneous", "similar", "everywhere",
-            "ordinary", "generic", "repeated", "routine",
+            "ordinary", "generic", "repeated", "routine", "exactly", "flattened",
+            "interchangeable",
         },
         "interpretation": (
             "This suggests standardization or loss of meaningful difference. In many corpora, "
@@ -2825,11 +2827,51 @@ SEMANTIC_SIGNAL_FAMILIES = {
         ),
         "question": "What idea of progress or value is being promoted, assumed, or challenged?",
     },
+    "Motif / Image Pattern": {
+        "markers": {
+            "colour", "color", "pearl", "cloud", "hills", "stars", "light",
+            "dark", "darkness", "sun", "moon", "sky", "blue", "white",
+            "surface", "earth", "hemisphere", "northern", "southern",
+            "vision", "visions", "image", "symbol", "metaphor",
+        },
+        "interpretation": (
+            "This appears to be recurring image or motif language. It may matter as atmosphere, "
+            "symbolism, or framing, but it should not be treated as a practical need or conclusion "
+            "unless the evidence ties it to a stronger pattern."
+        ),
+        "question": "Is this image pattern carrying interpretive weight, or is it mainly descriptive texture?",
+    },
 }
 
 LOW_INFORMATION_SIGNAL_TERMS = {
     "case", "either", "thing", "things", "said", "will", "still", "time", "made",
     "make", "must", "really", "perhaps", "course", "however", "therefore",
+    "seemed", "whose", "whereunder", "diurnal", "passed",
+}
+
+GENERIC_SIGNAL_PHRASES = {
+    "either case",
+    "in either case",
+    "of course",
+    "said vashti",
+}
+
+REQUIRED_SEMANTIC_MARKERS = {
+    "Embodiment / Lived Experience": {
+        "body", "bodies", "physical", "touch", "touched", "hand", "hands",
+        "walk", "walking", "muscles", "breath", "breathe", "face", "voice",
+        "felt", "feel", "pain", "experience", "direct", "silence", "hearing",
+        "steady", "stumbled", "pressed", "button",
+    },
+    "Standardization / Loss of Difference": {
+        "alike", "same", "identical", "uniform", "standard", "standardized",
+        "homogeneous", "everywhere", "exactly", "interchangeable",
+    },
+    "Motif / Image Pattern": {
+        "colour", "color", "pearl", "cloud", "hills", "stars", "light",
+        "dark", "darkness", "sun", "moon", "sky", "blue", "white",
+        "vision", "visions", "image", "symbol", "metaphor",
+    },
 }
 
 
@@ -2846,6 +2888,11 @@ def semantic_family_score(
     scores = {}
     for family, config in SEMANTIC_SIGNAL_FAMILIES.items():
         score = 0
+        required = REQUIRED_SEMANTIC_MARKERS.get(family)
+        if required and not any(marker in token_set or marker in combined for marker in required):
+            scores[family] = 0
+            continue
+
         for marker in config["markers"]:
             marker_l = marker.lower()
             if " " in marker_l or "-" in marker_l:
@@ -2860,10 +2907,15 @@ def semantic_family_score(
 
 
 def is_low_information_signal(signal: str, support: int, distinctiveness: float) -> bool:
+    normalized = " ".join(signal.lower().split())
+    if normalized in GENERIC_SIGNAL_PHRASES:
+        return True
     parts = [part.lower() for part in signal.split()]
     if not parts:
         return True
     if all(part in LOW_INFORMATION_SIGNAL_TERMS for part in parts):
+        return True
+    if len(parts) == 2 and any(part in LOW_INFORMATION_SIGNAL_TERMS for part in parts) and support <= 3:
         return True
     return support <= 3 and distinctiveness < 0.75 and any(
         part in LOW_INFORMATION_SIGNAL_TERMS for part in parts
@@ -2879,19 +2931,6 @@ def calibrate_signal_card(
     support: int,
     distinctiveness: float,
 ) -> Tuple[str, str, str]:
-    family, family_score = semantic_family_score(
-        signal,
-        related_terms,
-        evidence_text,
-        evidence_tokens,
-    )
-
-    if family_score >= 3:
-        config = SEMANTIC_SIGNAL_FAMILIES[family]
-        related = f" Related language includes: {related_terms}." if related_terms else ""
-        interpretation = f"{config['interpretation']}{related}"
-        return family, interpretation, config["question"]
-
     if is_low_information_signal(signal, support, distinctiveness):
         return (
             "Low-Specificity Signal",
@@ -2902,6 +2941,20 @@ def calibrate_signal_card(
             ),
             f"Is '{signal}' carrying real meaning here, or is it mostly connective language?",
         )
+
+    family, family_score = semantic_family_score(
+        signal,
+        related_terms,
+        evidence_text,
+        evidence_tokens,
+    )
+
+    threshold = 2 if family == "Motif / Image Pattern" else 3
+    if family_score >= threshold:
+        config = SEMANTIC_SIGNAL_FAMILIES[family]
+        related = f" Related language includes: {related_terms}." if related_terms else ""
+        interpretation = f"{config['interpretation']}{related}"
+        return family, interpretation, config["question"]
 
     return (
         signal_type,
@@ -3470,6 +3523,12 @@ def render_workflow_guide():
         - Risk / Concern
         - Decision / Tradeoff
         - Contradiction / Tension
+        - Infrastructure / System Dependence
+        - Embodiment / Lived Experience
+        - Institutional Structure / Social Design
+        - Standardization / Loss of Difference
+        - Motif / Image Pattern
+        - Low-Specificity Signal
         - Absence / Weak Signal
 
         The Resource Shape is a first-pass synthesis, not a final conclusion. The supporting cards are analytical leads that help you verify or challenge it.
