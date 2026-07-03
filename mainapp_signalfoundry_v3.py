@@ -4104,9 +4104,14 @@ with st.sidebar:
 
 # --- TABS LAYOUT ---
 #>>>>>>>>>>>>>>>>
-tab_learn, tab_work = st.tabs(["📚 Start Here / Learn", "🚀 Workspace"])
+#>>>>>>>>>>>>>>>>
+tab_work, tab_learn = st.tabs(["🚀 Scan Workspace", "📚 Learn / Use Cases"])
 
-# 1. THE LEARNING TAB (Guides, Examples)
+# 1. THE WORKSPACE TAB (Main Engine)
+with tab_work:
+#<<<<<<<<<<<<<<<<
+#>>>>>>>>>>>>>>>>
+# 2. THE LEARNING TAB (Guides, Examples)
 with tab_learn:
     render_workflow_guide()
     render_maturity_guide()
@@ -4114,9 +4119,7 @@ with tab_learn:
     render_neurotech_case_study()
     render_lit_case_study()
     render_analyst_help()
-
-# 2. THE WORKSPACE TAB (Main Engine)
-with tab_work:
+#<<<<<<<<<<<<<<<<
 #<<<<<<<<<<<<<<<<
     with st.expander("🛠️ Data Refinery (only if you need to split very large data files; **NOTE: sanitize first**)"):
         ref_file = st.file_uploader("CSV to Refine/split", type=['csv'])
