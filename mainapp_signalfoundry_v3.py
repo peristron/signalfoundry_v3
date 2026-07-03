@@ -2874,6 +2874,55 @@ REQUIRED_SEMANTIC_MARKERS = {
     },
 }
 
+SIGNAL_TYPE_PRIORITY = {
+    "Infrastructure / System Dependence": 1.35,
+    "Risk / Failure Mode": 1.3,
+    "Institutional Structure / Social Design": 1.25,
+    "Standardization / Loss of Difference": 1.2,
+    "Authority / Legitimacy": 1.15,
+    "Isolation / Disconnection": 1.1,
+    "Embodiment / Lived Experience": 1.0,
+    "Aspiration / Ideology": 0.95,
+    "Motif / Image Pattern": 0.65,
+    "Low-Specificity Signal": 0.25,
+    "Absence / Weak Signal": 0.2,
+}
+
+PATTERN_BASED_FAMILY_RULES = [
+    (
+        re.compile(
+            r"\b(?:exactly\s+)?(?:alike|same|identical|uniform|standardi[sz]ed|interchangeable|homogeneous)\b",
+            re.IGNORECASE,
+        ),
+        "Standardization / Loss of Difference",
+        5,
+    ),
+    (
+        re.compile(
+            r"\b(?:advanced?|progress|innovation|future|modern|thanks|blessed|praise|belief|inevitable)\b",
+            re.IGNORECASE,
+        ),
+        "Aspiration / Ideology",
+        4,
+    ),
+    (
+        re.compile(
+            r"\b(?:northern|southern|hemisphere|colour|color|pearl|cloud|hills|stars|moon|sun|sky|vision|visions)\b",
+            re.IGNORECASE,
+        ),
+        "Motif / Image Pattern",
+        3,
+    ),
+    (
+        re.compile(
+            r"\b(?:outage|failure|collapse|stops?|broken|defect|alarm|warning|danger|fragile|dying)\b",
+            re.IGNORECASE,
+        ),
+        "Risk / Failure Mode",
+        4,
+    ),
+]
+
 
 def semantic_family_score(
     signal: str,
@@ -2886,11 +2935,15 @@ def semantic_family_score(
     token_set.update(re.findall(r"[a-z][a-z-]+", combined))
 
     scores = {}
+    for pattern, family, score in PATTERN_BASED_FAMILY_RULES:
+        if pattern.search(signal) or pattern.search(related_terms):
+            scores[family] = max(scores.get(family, 0), score)
+
     for family, config in SEMANTIC_SIGNAL_FAMILIES.items():
-        score = 0
+        score = scores.get(family, 0)
         required = REQUIRED_SEMANTIC_MARKERS.get(family)
         if required and not any(marker in token_set or marker in combined for marker in required):
-            scores[family] = 0
+            scores[family] = score
             continue
 
         for marker in config["markers"]:
@@ -2950,6 +3003,8 @@ def calibrate_signal_card(
     )
 
     threshold = 2 if family == "Motif / Image Pattern" else 3
+    if family == "Embodiment / Lived Experience":
+        threshold = 5
     if family_score >= threshold:
         config = SEMANTIC_SIGNAL_FAMILIES[family]
         related = f" Related language includes: {related_terms}." if related_terms else ""
@@ -3173,10 +3228,14 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
         usable = insight_df.copy()
 
     confidence_weight = {"High": 3.0, "Medium": 1.5, "Low": 0.5}
+    family_priority = usable["Signal Type"].map(SIGNAL_TYPE_PRIORITY).fillna(1.0)
     usable["Shape Weight"] = (
-        usable["Evidence Strength"].fillna(0).astype(float)
-        + usable["Distinctiveness"].fillna(0).astype(float) * 3
-        + usable["Confidence"].map(confidence_weight).fillna(0.5)
+        (
+            usable["Evidence Strength"].fillna(0).astype(float)
+            + usable["Distinctiveness"].fillna(0).astype(float) * 2
+            + usable["Confidence"].map(confidence_weight).fillna(0.5)
+        )
+        * family_priority
     )
 
     family_rows = (
