@@ -3687,7 +3687,7 @@ def call_llm_and_track_cost(system_prompt: str, user_prompt: str, config: dict):
 st.set_page_config(page_title="Signal Foundry", layout="wide")
 st.toast("app loaded/updated successfully", icon="🚀") # cache buster
 st.title("🧠 Signal Foundry: Unstructured Data Analytics")
-st.markdown("### *(or: data geiger counter~)*")
+st.markdown("### *(or: dirty-data geiger counter~)*")
 
 if "privacy_notice_dismissed" not in st.session_state:
     st.session_state["privacy_notice_dismissed"] = False
