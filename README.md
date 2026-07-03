@@ -156,7 +156,7 @@ The offline harvester creates a `.json` sketch that can be loaded into the app.
 
 Basic use:
 
-```bash
+
 python harvester.py --input data.csv --col text --output sketch.json
 
 With date and category support:
