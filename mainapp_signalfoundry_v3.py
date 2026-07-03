@@ -3683,10 +3683,26 @@ def call_llm_and_track_cost(system_prompt: str, user_prompt: str, config: dict):
 # 🚀 main app ui
 # ==========================================
 
+#>>>>>>>>>>>>>>>>
 st.set_page_config(page_title="Signal Foundry", layout="wide")
 st.toast("app loaded/updated successfully", icon="🚀") # cache buster
 st.title("🧠 Signal Foundry: Unstructured Data Analytics")
 st.markdown("### *(or: data geiger counter~)*")
+
+if "privacy_notice_dismissed" not in st.session_state:
+    st.session_state["privacy_notice_dismissed"] = False
+
+if not st.session_state["privacy_notice_dismissed"]:
+    with st.container(border=True):
+        st.warning(
+            "Privacy reminder: this app is deployed on Streamlit Community Cloud. "
+            "Before uploading or pasting content, anonymize or remove sensitive, confidential, personal, "
+            "regulated, or client-identifiable information unless you are authorized to process it here."
+        )
+        if st.button("I understand - dismiss this notice", key="dismiss_privacy_notice"):
+            st.session_state["privacy_notice_dismissed"] = True
+            st.rerun()
+#<<<<<<<<<<<<<<<<
 
 # Initialize NLP globally
 analyzer, lemmatizer = setup_nlp_resources()
