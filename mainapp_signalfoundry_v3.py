@@ -3011,133 +3011,260 @@ def render_executive_signal_dashboard(
             st.markdown("**Offline harvester summary**")
             st.json(scanner.dashboard_summary, expanded=False)
 
+
+## Code Snippet: Replace `render_workflow_guide()`
+
+Replace the existing full `render_workflow_guide()` function with this:
+
+```python
+#>>>>>>>>>>>>>>>>
 def render_workflow_guide():
     with st.expander("📘 Comprehensive App Guide: How to use this Tool", expanded=False):
         st.markdown("""
         ### 🌟 What is Signal Foundry?
-        Signal Foundry turns messy text into structured signal. Feed it PDFs, CSVs, transcripts, PowerPoints, pasted notes, or pre-computed sketches and it will surface the recurring language, relationships, themes, entities, and maturity signals hiding inside the corpus.
 
-        It is designed for fast exploratory analysis:
-        *   **What is this corpus about?**
-        *   **What terms actually matter?**
-        *   **Who keeps showing up?**
-        *   **What concepts cluster together?**
-        *   **What level of maturity or sophistication does the language signal?**
+        Signal Foundry turns messy text into structured signal. Feed it PDFs, CSVs, transcripts, PowerPoints, pasted notes, URLs, or pre-computed harvester sketches and it will surface recurring language, relationships, themes, entities, maturity signals, and evidence-backed insight cards.
 
-        ---
+        It is designed for fast exploratory sensemaking:
 
-        ### 🚀 How to Use It (Three Paths)
-
-        **Path A – Instant Scan (best default for most users)**  
-        1. Upload one or more files in the sidebar, or paste URLs / raw text.  
-        2. Leave the default cleaning settings on unless you know you need something different.  
-        3. If you uploaded multiple items, click **"⚡ Scan ALL Items"**.  
-        4. Read the Word Cloud, Keyphrases, Entities, and Graph first.  
-        5. Move into Trends, Topic Modeling, Sentiment, or Maturity only after the first pass makes sense.
-
-        **Path B – Surgical Precision (for structured files)**  
-        Use this when columns matter.
-        1. Expand the **Config** panel for a CSV or Excel file.
-        2. Choose the text columns you want analyzed.
-        3. Optionally choose a date column for trend analysis.
-        4. Optionally choose a category column for future slicing / grouping work.
-        5. Run the file individually with **Start Scan**.
-
-        **Path C – Offline / Secure-Site Mode**  
-        Run `harvester.py` on your secure server, then upload the resulting `.json` sketch.
-        **Result:** You still get the visualization dashboard without moving raw source text into the Streamlit app.
+        - What is this corpus about?
+        - What terms and phrases actually matter?
+        - What seems distinctive, not just frequent?
+        - What tensions, needs, blockers, risks, or opportunities appear?
+        - What concepts are missing or weak?
+        - What should a human analyst inspect next?
 
         ---
 
-        ### 🧩 Best Workflow for Maturity Scans
+        ### 🚦 Recommended Reading Order
 
-        If your goal is maturity assessment rather than general exploration, use this sequence:
-        1. Upload meeting transcripts, coaching notes, workshop notes, or strategy discussions.
-        2. Keep **Bigrams** turned on. Many maturity signals are phrase-based.
-        3. Keep **Remove Generic Filler Words and Prepositions** on unless you have a special reason not to.
-        4. Lower **Min Word Len** if the corpus uses many short but meaningful terms such as API, LMS, SIS, LTI, AI, or TAM.
-        5. Start with the **Word Cloud** and **Frequency Tables** first. If those look wrong, maturity scoring will also look wrong.
-        6. Then move to the **Maturity** tab and inspect both the overall score and the domain cards.
-        7. Treat **No Data** as "no mapped language detected in this corpus", not as proof that the capability is absent.
+        After scanning, use this order:
 
-        **Important:** generic filler-word removal is maturity-safe in this app. Known maturity vocabulary is protected from automatic stopword cleanup so key domain signals are less likely to disappear accidentally.
+        1. **Executive Signal Dashboard**  
+           Start here. It summarizes corpus size, evidence coverage, strongest signals, signal-type mix, and suggested next steps.
 
-        ---
+        2. **Insight Engine**  
+           Review evidence-backed cards. These connect statistical signals to interpretation, confidence, representative excerpts, and follow-up questions.
 
-        ### 🧭 Recommended Reading Order
+        3. **Word Cloud & Stats**  
+           Confirm the scan looks sane. If boilerplate or junk dominates, adjust stopwords and rescan.
 
-        If you are new to the app, read the outputs in this order:
-        1. **Word Cloud + Stats** for the big picture
-        2. **Themes** when you want help reading between the lines
-        3. **Keyphrases / NPMI** for specific language and terminology
-        4. **Entities** for people, orgs, systems, or named things
-        5. **Graph** for relationships and clusters
-        6. **Trends** if dates were supplied
-        7. **Topic Modeling** when you want automatic thematic buckets
-        8. **Maturity** when you want an interpretive framework rather than raw term counts
+        4. **Themes**  
+           Inspect theme evidence cards, frequency-vs-distinctiveness, missing expected signals, category contrasts, and temporal drift.
 
-        ---
+        5. **Keyphrases**  
+           Use TF-IDF to find words that are unusually specific to this corpus.
 
-        ### 🧠 How to Read the Output
+        6. **Entities**  
+           Check which people, organizations, systems, programs, places, or named concepts keep appearing.
 
-        *   **Word Cloud + Stats** → Fast orientation. Use this to confirm you scanned the right thing.
-        *   **Themes** → The interpretive lens: theme evidence cards, frequency-vs-distinctiveness, missing expected signals, category contrasts, and temporal drift.
-        *   **Keyphrases (TF-IDF)** → What is unusually specific to this corpus, not just frequent.
-        *   **Sticky Concepts (NPMI)** → Which word pairs behave like real concepts rather than accidental neighbors.
-        *   **Entities** → Which named people, organizations, programs, or systems dominate the discussion.
-        *   **Network Graph** → Which terms cluster together and where the semantic gravity sits.
-        *   **Topic Modeling** → Machine-generated thematic buckets when you want a rough thematic map.
-        *   **Bayesian Sentiment** → Direction plus confidence, useful only when there is enough data.
-        *   **Maturity Model** → An interpretive scoring layer that reads the language as capability signal.
+        7. **Network Graph**  
+           Explore relationships between terms after the core signals make sense.
+
+        8. **Maturity**  
+           Use this when the source material fits one of the maturity lenses.
+
+        9. **AI Analyst**  
+           Use last. It works best when the visible dashboard and evidence cards already look reasonable.
 
         ---
 
-        ### 🧭 How to Read Between the Lines
+        ### 🚀 How to Use It
 
-        *   **Theme Evidence Cards:** Start here when you want a short list of candidate themes. Treat each row as a lead, then inspect the related terms to see whether the lead is meaningful or just repeated wording.
-        *   **Signal Quadrant:** Compare what is frequent against what is distinctive. The most repeated word is not always the most revealing word.
-        *   **What's Missing?:** Enter terms you expected to see, such as "governance", "risk", "training", or a known project name. Missing or weak signals can be just as important as present ones.
-        *   **Contrastive Analysis:** If your upload has a category column, compare two groups, speakers, teams, document types, or phases to see what language differentiates them.
-        *   **Temporal Drift:** If your upload has dates, look for terms that rise or fade between the early and later portions of the corpus.
+        #### Path A - Standard Scan
 
-        **Input note:** The app still accepts the same uploads as before. For richer "read between the lines" analysis, use structured CSV/XLSX fields when you have them: text columns for content, a date column for drift, a category column for comparison, and transcript speaker labels when you want to include or exclude specific voices.
+        Best for most users.
+
+        1. Upload one or more files in the sidebar.
+        2. Keep **Clear previous data** enabled unless intentionally combining scans.
+        3. Leave default cleaning settings on for the first pass.
+        4. Click the scan button.
+        5. Start with the **Executive Signal Dashboard**.
+
+        #### Path B - Structured Files
+
+        Best for CSV or Excel files with meaningful columns.
+
+        1. Expand the file configuration panel.
+        2. Choose the text column or columns.
+        3. Choose a date column if you want trends.
+        4. Choose a category column if you want group comparison.
+        5. Scan the file.
+
+        Category columns can power contrastive analysis, such as comparing teams, departments, clients, speakers, document types, or phases.
+
+        Date columns can power temporal drift and trend analysis.
+
+        #### Path C - Offline Harvester
+
+        Best for very large files or secure environments.
+
+        Run the harvester outside the app:
+
+        ```bash
+        python harvester.py --input data.csv --col text --output sketch.json
+        ```
+
+        With richer dashboard support:
+
+        ```bash
+        python harvester.py --input data.csv --col text --date-col date --category-col team --output sketch.json
+        ```
+
+        Then upload the generated sketch in **Load Offline Analysis (Harvester)**.
+
+        Use `--no-evidence` if you do not want representative excerpts stored in the sketch.
 
         ---
 
-        ### 🧪 Topic Modeling: LDA vs NMF
+        ### 💡 How to Read the Insight Engine
 
-        **Choose LDA when:**
-        *   You are scanning longer documents, reports, policies, or dense PDFs.
-        *   You expect each chunk to contain a mix of themes.
-        *   You want broader, more blended topic buckets.
+        Each insight card includes:
 
-        **Choose NMF when:**
-        *   You are scanning shorter rows, tickets, chats, transcripts, or survey comments.
-        *   You want sharper, more distinct topic buckets.
-        *   Your input feels repetitive but specific.
+        - **Signal:** the phrase or concept being surfaced
+        - **Signal Type:** likely analytical category
+        - **Evidence Strength:** how much support exists
+        - **Distinctiveness:** how much the signal stands out
+        - **Confidence:** low, medium, or high
+        - **Representative Evidence:** short source excerpts when available
+        - **Interpretation:** what the signal may indicate
+        - **Follow-up Question:** what a human should ask next
 
-        **If the topics look bad:**
-        *   Increase **Rows per Doc** for long reports and books.
-        *   Decrease **Rows per Doc** for chats, support logs, and transcripts.
-        *   Add boring boilerplate terms to **Stopwords**.
-        *   Try the other model. Topic modeling is exploratory, not definitive.
+        Signal types include:
+
+        - Pain / Friction
+        - Need / Request
+        - Blocker / Constraint
+        - Aspiration / Opportunity
+        - Risk / Concern
+        - Decision / Tradeoff
+        - Contradiction / Tension
+        - Absence / Weak Signal
+
+        These are analytical leads, not final conclusions.
 
         ---
 
-        ### ⚡ Practical Tips
+        ### 🧭 Reading Between the Lines
 
-        *   **Additive Analysis:** Leave **Clear previous data** unchecked only when you intentionally want to merge new material into the current corpus.
-        *   **Graph is a blob?** → Raise **Min Link Frequency**.  
-        *   **Graph is empty islands?** → Lower it.  
-        *   **Seeing garbage words?** → Add them to **Stopwords** box.  
-        *   **Seeing "run" and "running"?** → Turn on **Lemmatization**.  
-        *   **Dates not showing up in Trends?** → Make sure you selected the date column before scanning.
-        *   **Comparing groups?** → Use a Category column during scan. This powers the Contrastive Analysis view in the Themes tab.
-        *   **Tracking change?** → Use a Date column during scan. This powers Temporal Drift and the existing Trends tab.
-        *   **Need a shareable verification artifact?** → Download the **Hybrid Signature** (QR + Heatmap).
+        Signal Foundry does not magically know intent. It surfaces patterns that help a person interpret the text.
 
-        **Bottom line:** start simple, confirm the scan makes sense, then layer on the more interpretive tools.
+        Useful moves:
+
+        - Look for high-confidence insight cards first.
+        - Compare frequent terms against distinctive terms.
+        - Enter expected concepts to see what is missing.
+        - Use category comparison when different stakeholder groups are present.
+        - Use temporal drift when dates are available.
+        - Read representative evidence before making claims.
+        - Treat surprising absences as questions, not proof.
+
+        Good follow-up questions often sound like:
+
+        - What is causing this friction?
+        - Who experiences this blocker most?
+        - What need is being repeated but not resolved?
+        - What risk is implied but not directly named?
+        - What is missing from the language?
+        - What does the corpus avoid saying?
+
+        ---
+
+        ### 🕸️ Network Graph Guidance
+
+        The graph is useful, but it is also the most browser-sensitive visualization.
+
+        Start with conservative settings:
+
+        - **Min Link Frequency:** raise this to remove weak connections.
+        - **Max Nodes:** lower this if the graph is too dense.
+        - **Max Links:** lower this if rendering becomes unstable.
+        - **Physics:** turn off if the graph jumps around too much.
+        - **GEXF Export:** use this for heavier graph analysis in external tools.
+
+        Suggested presets:
+
+        - **Safe:** Min Link 5+, Max Nodes 40, Max Links 60
+        - **Balanced:** Min Link 3-5, Max Nodes 55, Max Links 90
+        - **Dense:** Min Link 2-3, Max Nodes 80+, Max Links 150+
+
+        If the graph fails to render, lower nodes and links first.
+
+        ---
+
+        ### 🏆 Maturity Model Guidance
+
+        Use maturity scoring when the source material actually contains maturity-relevant language.
+
+        Strong sources:
+
+        - meeting transcripts
+        - coaching notes
+        - strategic reviews
+        - policy discussions
+        - operational retrospectives
+        - implementation planning notes
+
+        Weaker sources:
+
+        - technical logs
+        - boilerplate documents
+        - short excerpts
+        - OCR-heavy PDFs
+        - documents with little organizational language
+
+        Important: maturity scoring measures language signals, not verified organizational reality. Treat it as a conversation starter.
+
+        ---
+
+        ### 🧼 Data Hygiene Tips
+
+        If results look odd:
+
+        - Check whether **Clear previous data** was off accidentally.
+        - Add recurring junk terms to stopwords.
+        - Lower **Min Word Len** if acronyms matter.
+        - Raise **Min Word Len** if short junk words dominate.
+        - Keep **Bigrams** enabled for phrase detection.
+        - Use structured columns when possible.
+        - For OCR-heavy PDFs, expect some noisy terms.
+        - Re-scan after changing important cleaning settings.
+
+        ---
+
+        ### 🔐 Privacy Notes
+
+        The app can analyze raw uploaded text inside the Streamlit session.
+
+        The AI Analyst is designed to use statistical sketches and insight-card context rather than full raw documents.
+
+        Offline harvester sketches may include representative excerpts unless generated with:
+
+        ```bash
+        --no-evidence
+        ```
+
+        Use `--no-evidence` for highly sensitive corpora.
+
+        ---
+
+        ### ✅ Practical Testing Checklist
+
+        For a new deployment or code update:
+
+        1. Load the app.
+        2. Upload one small TXT or PDF.
+        3. Scan with **Clear previous data** enabled.
+        4. Confirm the Executive Signal Dashboard appears.
+        5. Confirm Insight Engine cards appear.
+        6. Confirm Word Cloud and Frequency Tables render.
+        7. Test the Network Graph with conservative settings.
+        8. Test offline sketch loading from the harvester.
+        9. Test AI Analyst last.
+
+        Bottom line: start with the dashboard, inspect evidence, then drill into the deeper tools.
         """)
+#<<<<<<<<<<<<<<<<
 
 def render_lit_case_study():
     # We use Unicode "Math Sans" characters to simulate bold/italics in the title
