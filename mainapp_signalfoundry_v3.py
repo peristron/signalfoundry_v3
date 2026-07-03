@@ -3708,9 +3708,26 @@ if not st.session_state["privacy_notice_dismissed"]:
 analyzer, lemmatizer = setup_nlp_resources()
 
 # --- SIDEBAR (Global Inputs) ---
+#>>>>>>>>>>>>>>>>
 with st.sidebar:
+    with st.expander("🧭 Start Here", expanded=True):
+        st.markdown(
+            """
+            **Before scanning:**
+
+            1. Choose whether to **clear previous data**.
+            2. Set cleaning options and stopwords below.
+            3. Add speaker exclusions if using transcripts.
+            4. Upload or paste your source material.
+            5. Scan, then start with the dashboard.
+
+            For sensitive material, anonymize before upload.
+            """
+        )
+
     st.header("📂 Data Input")
     uploaded_files = st.file_uploader(
+#<<<<<<<<<<<<<<<<
         "Upload Files",
         type=["csv", "xlsx", "vtt", "txt", "json", "pdf", "pptx"],
         accept_multiple_files=True,
