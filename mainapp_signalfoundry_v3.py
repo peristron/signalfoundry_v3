@@ -4648,13 +4648,18 @@ with tab_work:
             else:
                 st.info("Not enough term data yet to build the signal quadrant.")
 
-            st.markdown("#### What's Missing? Expected Signal Check")
+#>>>>>>>>>>>>>>>>
+            st.markdown("#### Hypothesis / Concept Check")
             expected_raw = st.text_area(
-                "Optional: enter expected terms or phrases, separated by commas or new lines",
+                "Optional concepts, risks, themes, or required topics to check",
                 key="expected_signal_terms",
-                placeholder="Example: procurement delay, escalation, training, governance",
-                help="Use this when you expected a topic to appear and want to test whether it is present, weak, or absent."
+                placeholder="Optional: procurement delay, escalation, training, governance",
+                help=(
+                    "Use this when you already have concepts, risks, themes, or required topics "
+                    "you want to check against the text. Leave blank for open-ended discovery."
+                ),
             )
+#<<<<<<<<<<<<<<<<
             expected_df = build_expected_terms_df(expected_raw, combined_counts, scanner.global_bigrams)
             if not expected_df.empty:
                 st.dataframe(expected_df, use_container_width=True)
