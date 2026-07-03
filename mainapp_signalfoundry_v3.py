@@ -3012,11 +3012,6 @@ def render_executive_signal_dashboard(
             st.json(scanner.dashboard_summary, expanded=False)
 
 
-## Code Snippet: Replace `render_workflow_guide()`
-
-Replace the existing full `render_workflow_guide()` function with this:
-
-```python
 #>>>>>>>>>>>>>>>>
 def render_workflow_guide():
     with st.expander("📘 Comprehensive App Guide: How to use this Tool", expanded=False):
