@@ -158,3 +158,60 @@ Basic use:
 
 ```bash
 python harvester.py --input data.csv --col text --output sketch.json
+
+With date and category support:
+
+python harvester.py \
+  --input data.csv \
+  --col text \
+  --date-col date \
+  --category-col team \
+  --output sketch.json
+
+For privacy-sensitive workflows, disable evidence excerpts:
+
+python harvester.py --input data.csv --col text --output sketch.json --no-evidence
+Streamlit Secrets
+
+At minimum, configure:
+
+auth_password = "your-password-here"
+
+Optional AI provider keys:
+
+deepseek_api_key = "your-key-here"
+openai_api_key = "your-key-here"
+xai_api_key = "your-key-here"
+
+Do not commit real API keys to GitHub. Add real secrets in Streamlit Community Cloud settings.
+
+Local Run
+pip install -r requirements.txt
+streamlit run mainapp_signalfoundry_v3.py
+
+If your app file is named differently, use that filename instead.
+
+Deployment
+
+For Streamlit Community Cloud:
+
+Push the repo to GitHub.
+Confirm requirements.txt is at the repo root.
+Set the app entry point to the correct Python file.
+Add Streamlit secrets.
+Deploy.
+Test with a small file before using larger corpora.
+Interpreting Results Safely
+
+Signal Foundry surfaces evidence and patterns. It does not prove intent, causality, maturity, or truth by itself.
+
+Use it to:
+
+find leads
+identify recurring signals
+compare groups
+detect missing concepts
+generate better follow-up questions
+support human interpretation
+
+Do not treat outputs as final conclusions without reviewing representative evidence.
