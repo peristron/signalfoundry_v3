@@ -4419,15 +4419,17 @@ with tab_work:
                     "but insight evidence is based on the retained sample."
                 )
 
+#>>>>>>>>>>>>>>>>
             insight_expected_terms = st.text_area(
-                "Optional: concepts you expected to see",
+                "Hypothesis / Concept Check",
                 key="insight_expected_terms",
-                placeholder="Example: ownership, governance, workload, trust, escalation, training",
+                placeholder="Optional: governance, workload, trust, escalation, training",
                 help=(
-                    "These become absence checks. Missing expected concepts often reveal just as much "
-                    "as repeated concepts."
+                    "Optional. Use this if you already have concepts, risks, themes, or required topics "
+                    "you want to check against the text. Leave blank for open-ended discovery."
                 ),
             )
+#<<<<<<<<<<<<<<<<
 
             insight_df = build_insight_cards(
                 scanner,
