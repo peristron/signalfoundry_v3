@@ -3725,7 +3725,7 @@ with st.sidebar:
             """
         )
 
-    st.header("🧭 Scan Controls")
+    st.header("🧭 Scan Settings")
 
     # checking if there's currently data
     has_data = st.session_state['sketch'].total_rows_processed > 0
