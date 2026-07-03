@@ -2719,6 +2719,197 @@ def classify_signal_dimension(text: str, tokens: Iterable[str]) -> Tuple[str, in
     return best_label, best_score
 
 
+SEMANTIC_SIGNAL_FAMILIES = {
+    "Infrastructure / System Dependence": {
+        "markers": {
+            "system", "machine", "apparatus", "infrastructure", "platform", "tool",
+            "server", "cloud", "model", "automation", "automated", "workflow",
+            "central", "power", "station", "network", "dependency", "depends",
+            "depend", "mending", "repair", "service", "provider", "feeds",
+            "clothes", "houses", "connects", "communication-system",
+        },
+        "interpretation": (
+            "This points to reliance on an enabling system or infrastructure. "
+            "The important question is whether the system is simply supporting the work, "
+            "or quietly shaping what people can notice, do, or decide."
+        ),
+        "question": "What breaks, changes, or becomes impossible if this system stops working?",
+    },
+    "Embodiment / Lived Experience": {
+        "markers": {
+            "body", "bodies", "physical", "touch", "touched", "hand", "hands",
+            "walk", "walking", "muscles", "breath", "breathe", "air", "face",
+            "voice", "space", "near", "far", "sense", "felt", "feel", "pain",
+            "room", "cell", "experience", "direct", "surface",
+        },
+        "interpretation": (
+            "This suggests a lived or embodied dimension: how people physically experience "
+            "the situation, not just what they say about it. These signals often reveal what "
+            "is lost, avoided, constrained, or newly felt."
+        ),
+        "question": "What lived experience is being revealed beneath the surface language?",
+    },
+    "Isolation / Disconnection": {
+        "markers": {
+            "alone", "isolated", "isolation", "separate", "separated", "remote",
+            "distance", "distant", "room", "cell", "silence", "communicate",
+            "communicated", "communication", "message", "visit", "visits",
+            "connection", "disconnect", "lonely", "apart", "never", "correspondents",
+        },
+        "interpretation": (
+            "This points to separation, mediated contact, or weakened connection. The signal "
+            "may matter even when the text does not literally say 'isolation'."
+        ),
+        "question": "Who or what is separated here, and what form of connection is missing or mediated?",
+    },
+    "Authority / Legitimacy": {
+        "markers": {
+            "authority", "authorized", "governance", "policy", "rule", "rules",
+            "committee", "approval", "book", "law", "duties", "ownership",
+            "accountable", "ritual", "worship", "prayer", "divine", "blessed",
+            "praise", "official", "leader", "management", "government",
+        },
+        "interpretation": (
+            "This suggests a legitimacy or authority structure: rules, committees, rituals, "
+            "official texts, or accepted narratives that tell people what is normal or permissible."
+        ),
+        "question": "What authority is being accepted, questioned, or protected by this language?",
+    },
+    "Risk / Failure Mode": {
+        "markers": {
+            "risk", "failure", "fail", "failed", "fragile", "threat", "danger",
+            "collapse", "stops", "stopped", "broken", "defect", "repair", "mending",
+            "darkness", "foul", "dying", "death", "complaints", "remedies",
+            "vulnerable", "outage", "crisis", "warning", "alarm",
+        },
+        "interpretation": (
+            "This looks like a failure-mode signal: the text is exposing what can break, "
+            "what people depend on, or what becomes dangerous when normal supports degrade."
+        ),
+        "question": "What failure mode is being signaled, and who would feel it first?",
+    },
+    "Standardization / Loss of Difference": {
+        "markers": {
+            "alike", "same", "identical", "uniform", "standard", "standardized",
+            "template", "common", "conform", "homogeneous", "similar", "everywhere",
+            "ordinary", "generic", "repeated", "routine",
+        },
+        "interpretation": (
+            "This suggests standardization or loss of meaningful difference. In many corpora, "
+            "this can point to efficiency, conformity, commoditization, or reduced local context."
+        ),
+        "question": "What difference or local context is being flattened here?",
+    },
+    "Institutional Structure / Social Design": {
+        "markers": {
+            "institution", "institutional", "public", "nurseries", "parents",
+            "children", "duties", "assigned", "committee", "school", "organization",
+            "team", "role", "roles", "department", "process", "stakeholder",
+            "governance", "structure", "engagements", "gatherings",
+        },
+        "interpretation": (
+            "This points to a social or institutional arrangement: how roles, duties, access, "
+            "or relationships are organized by a system rather than by individual choice alone."
+        ),
+        "question": "What social arrangement is this language normalizing or exposing?",
+    },
+    "Aspiration / Ideology": {
+        "markers": {
+            "advanced", "progress", "future", "improve", "better", "innovation",
+            "modern", "transformation", "ideal", "belief", "believed", "praise",
+            "thanks", "blessed", "vision", "strategy", "promise", "hope",
+        },
+        "interpretation": (
+            "This may be aspirational or ideological language. It can reveal what the text "
+            "presents as progress, virtue, inevitability, or shared belief."
+        ),
+        "question": "What idea of progress or value is being promoted, assumed, or challenged?",
+    },
+}
+
+LOW_INFORMATION_SIGNAL_TERMS = {
+    "case", "either", "thing", "things", "said", "will", "still", "time", "made",
+    "make", "must", "really", "perhaps", "course", "however", "therefore",
+}
+
+
+def semantic_family_score(
+    signal: str,
+    related_terms: str,
+    evidence_text: str,
+    evidence_tokens: Iterable[str],
+) -> Tuple[str, int]:
+    combined = f"{signal} {related_terms} {evidence_text}".lower()
+    token_set = set(str(token).lower() for token in evidence_tokens)
+    token_set.update(re.findall(r"[a-z][a-z-]+", combined))
+
+    scores = {}
+    for family, config in SEMANTIC_SIGNAL_FAMILIES.items():
+        score = 0
+        for marker in config["markers"]:
+            marker_l = marker.lower()
+            if " " in marker_l or "-" in marker_l:
+                if marker_l in combined:
+                    score += 2
+            elif marker_l in token_set or marker_l in combined:
+                score += 1
+        scores[family] = score
+
+    best_family, best_score = max(scores.items(), key=lambda item: item[1])
+    return best_family, best_score
+
+
+def is_low_information_signal(signal: str, support: int, distinctiveness: float) -> bool:
+    parts = [part.lower() for part in signal.split()]
+    if not parts:
+        return True
+    if all(part in LOW_INFORMATION_SIGNAL_TERMS for part in parts):
+        return True
+    return support <= 3 and distinctiveness < 0.75 and any(
+        part in LOW_INFORMATION_SIGNAL_TERMS for part in parts
+    )
+
+
+def calibrate_signal_card(
+    signal: str,
+    signal_type: str,
+    related_terms: str,
+    evidence_text: str,
+    evidence_tokens: Iterable[str],
+    support: int,
+    distinctiveness: float,
+) -> Tuple[str, str, str]:
+    family, family_score = semantic_family_score(
+        signal,
+        related_terms,
+        evidence_text,
+        evidence_tokens,
+    )
+
+    if family_score >= 3:
+        config = SEMANTIC_SIGNAL_FAMILIES[family]
+        related = f" Related language includes: {related_terms}." if related_terms else ""
+        interpretation = f"{config['interpretation']}{related}"
+        return family, interpretation, config["question"]
+
+    if is_low_information_signal(signal, support, distinctiveness):
+        return (
+            "Low-Specificity Signal",
+            (
+                f"'{signal}' appears statistically, but it may be too generic to interpret "
+                "without stronger supporting evidence. Treat this as a weak lead unless the "
+                "excerpt clearly shows a substantive pattern."
+            ),
+            f"Is '{signal}' carrying real meaning here, or is it mostly connective language?",
+        )
+
+    return (
+        signal_type,
+        build_interpretation(signal, signal_type, related_terms, support),
+        build_followup_question(signal, signal_type),
+    )
+
+
 def find_representative_evidence(
     evidence_docs: List[Dict[str, Any]],
     signal_terms: List[str],
@@ -2845,16 +3036,25 @@ def build_insight_cards(
         distinctiveness = float(row.get("Distinctiveness", 0.0) or 0.0)
         confidence = confidence_label(support, len(evidence), distinctiveness)
         related_terms = str(row.get("Related Terms", ""))
+        calibrated_type, calibrated_interpretation, calibrated_question = calibrate_signal_card(
+            signal=signal,
+            signal_type=signal_type,
+            related_terms=related_terms,
+            evidence_text=evidence_text,
+            evidence_tokens=evidence_tokens + signal_terms,
+            support=support,
+            distinctiveness=distinctiveness,
+        )
 
         rows.append({
             "Signal": signal,
-            "Signal Type": signal_type,
+            "Signal Type": calibrated_type,
             "Evidence Strength": support,
             "Distinctiveness": round(distinctiveness, 3),
             "Confidence": confidence,
             "Representative Evidence": summarize_evidence(evidence),
-            "Interpretation": build_interpretation(signal, signal_type, related_terms, support),
-            "Follow-up Question": build_followup_question(signal, signal_type),
+            "Interpretation": calibrated_interpretation,
+            "Follow-up Question": calibrated_question,
         })
 
     expected_df = build_expected_terms_df(expected_terms_raw, counts, scanner.global_bigrams)
