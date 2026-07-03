@@ -3718,24 +3718,15 @@ with st.sidebar:
             1. Choose whether to **clear previous data**.
             2. Set cleaning options and stopwords below.
             3. Add speaker exclusions if using transcripts.
-            4. Upload or paste your source material.
+            4. Open **Workspace** and upload or paste your source material.
             5. Scan, then start with the dashboard.
 
             For sensitive material, anonymize before upload.
             """
         )
 
-    st.header("📂 Data Input")
-    uploaded_files = st.file_uploader(
-#<<<<<<<<<<<<<<<<
-        "Upload Files",
-        type=["csv", "xlsx", "vtt", "txt", "json", "pdf", "pptx"],
-        accept_multiple_files=True,
-        help="Upload one or more source files. CSV/XLSX are best for structured data, VTT/TXT for transcripts, PDF/PPTX for document decks, and JSON for offline sketches.",
-    )
-    
-    # --modified logic (Additive Mode Safety)
-    
+    st.header("🧭 Scan Controls")
+
     # checking if there's currently data
     has_data = st.session_state['sketch'].total_rows_processed > 0
     
@@ -3752,53 +3743,9 @@ with st.sidebar:
     elif has_data and clear_on_scan:
         st.caption("✅ Next scan will overwrite current data.")
         
-    if st.button("🗑️ Reset All"): reset_sketch(); st.rerun()
-    
-    # --end
-    
-    st.divider()
-
-    # 1. quick imports (web/text)
-    with st.expander("🌐 Quick Web / Text Paste"):
-        url_input = st.text_area(
-            "URLs (1 per line)",
-            placeholder="https://example.com/article",
-            help="Paste public URLs to scrape page text into the current scan. Best for articles, public reports, and web pages with readable body text.",
-        )
-        manual_input = st.text_area(
-            "Manual Text Paste",
-            placeholder="Paste raw text content here...",
-            help="Use this for notes, excerpts, transcripts, or ad hoc text that you do not want to upload as a file.",
-        )
-
-    # 2. offline / enterprise import ("harvester")
-    with st.expander("📡 Load Offline Analysis (Harvester)", expanded=False):
-        st.markdown("Upload pre-computed analysis from your secure server.")
-        
-        # the feature gap warning
-        st.caption("⚠️ **Note:** Offline sketches provide Graphs, Counts & NPMI. Time-series and Entities are disabled in this mode.")
-        
-        sketch_upload = st.file_uploader(
-            "Upload Sketch File (.json)", 
-            type=["json"],
-            help="Use this for datasets >200MB. Run the 'harvester.py' script on your data server, then upload the resulting JSON here.\n\nCommand:\npython harvester.py --input data.csv --col text --output sketch.json"
-        )
-        
-        if sketch_upload:
-            file_hash = hash(sketch_upload.getvalue())
-            if st.session_state.get('last_sketch_hash') != file_hash:
-                try:
-                    # clearing previous data to prevent corruption
-                    reset_sketch()
-                    
-                    json_str = sketch_upload.getvalue().decode('utf-8')
-                    if st.session_state['sketch'].load_from_json(json_str):
-                        st.session_state['last_sketch_hash'] = file_hash
-                        st.success(f"✅ Loaded Sketch: {sketch_upload.name}")
-                    else:
-                        st.error("❌ Invalid Schema: JSON does not match Signal Foundry structure.")
-                except Exception as e:
-                    st.error(f"❌ Load Error: {e}")
+    if st.button("🗑️ Reset All"):
+        reset_sketch()
+        st.rerun()
         
     st.divider()
    
@@ -3938,8 +3885,10 @@ with st.sidebar:
 
     st.markdown("**Transcript Speaker Exclusion**")
     detected_speaker_counts = Counter()
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
+    workspace_files_for_detection = st.session_state.get("workspace_scan_upload") or []
+    manual_input_for_detection = st.session_state.get("manual_text_input") or ""
+    if workspace_files_for_detection:
+        for uploaded_file in workspace_files_for_detection:
             try:
                 detected_speaker_counts.update(
                     collect_speaker_labels_from_file(
@@ -3949,9 +3898,9 @@ with st.sidebar:
                 )
             except Exception:
                 pass
-    if manual_input:
+    if manual_input_for_detection:
         detected_speaker_counts.update(
-            collect_speaker_labels_from_text(manual_input)
+            collect_speaker_labels_from_text(manual_input_for_detection)
         )
 
     selected_detected_speakers: List[str] = []
@@ -4104,7 +4053,7 @@ with st.sidebar:
 
 # --- TABS LAYOUT ---
 #>>>>>>>>>>>>>>>>
-tab_learn, tab_work = st.tabs(["📚 Start Here / Learn", "🚀 Workspace"])
+tab_work, tab_learn = st.tabs(["🚀 Workspace", "📚 Start Here / Learn"])
 
 # 1. THE LEARNING TAB (Guides, Examples)
 with tab_learn:
@@ -4120,17 +4069,56 @@ with tab_work:
 #<<<<<<<<<<<<<<<<
     st.subheader("🚀 Scan Workspace")
     st.caption(
-        "Upload or paste source material in the sidebar, then scan it here. "
-        "If the sidebar upload does not appear below, use this workspace uploader instead."
+        "Upload files, paste text or URLs, or load an offline sketch here. "
+        "Use the sidebar for cleaning, stopwords, scan mode, and analysis settings."
     )
 
     workspace_files = st.file_uploader(
-        "Workspace file upload",
+        "Upload files to scan",
         type=["csv", "xlsx", "vtt", "txt", "json", "pdf", "pptx"],
         accept_multiple_files=True,
         key="workspace_scan_upload",
-        help="Use this if files uploaded in the sidebar do not appear in the scanning area.",
+        help="Upload one or more source files. CSV/XLSX are best for structured data, VTT/TXT for transcripts, PDF/PPTX for document decks, and JSON for line-delimited text or sketches.",
     )
+
+    with st.expander("🌐 Quick Web / Text Paste", expanded=False):
+        url_input = st.text_area(
+            "URLs (1 per line)",
+            placeholder="https://example.com/article",
+            key="workspace_url_input",
+            help="Paste public URLs to scrape page text into the current scan. Best for articles, public reports, and web pages with readable body text.",
+        )
+        manual_input = st.text_area(
+            "Manual Text Paste",
+            placeholder="Paste raw text content here...",
+            key="manual_text_input",
+            help="Use this for notes, excerpts, transcripts, or ad hoc text that you do not want to upload as a file.",
+        )
+
+    with st.expander("📡 Load Offline Analysis (Harvester)", expanded=False):
+        st.markdown("Upload pre-computed analysis from your secure server.")
+        st.caption("⚠️ **Note:** Offline sketches provide Graphs, Counts & NPMI. Time-series and Entities are disabled unless included in the sketch.")
+
+        sketch_upload = st.file_uploader(
+            "Upload Sketch File (.json)",
+            type=["json"],
+            key="workspace_sketch_upload",
+            help="Use this for very large datasets. Run the harvester.py script on your data server, then upload the resulting JSON here.",
+        )
+
+        if sketch_upload:
+            file_hash = hash(sketch_upload.getvalue())
+            if st.session_state.get('last_sketch_hash') != file_hash:
+                try:
+                    reset_sketch()
+                    json_str = sketch_upload.getvalue().decode('utf-8')
+                    if st.session_state['sketch'].load_from_json(json_str):
+                        st.session_state['last_sketch_hash'] = file_hash
+                        st.success(f"✅ Loaded Sketch: {sketch_upload.name}")
+                    else:
+                        st.error("❌ Invalid Schema: JSON does not match Signal Foundry structure.")
+                except Exception as e:
+                    st.error(f"❌ Load Error: {e}")
 
     with st.expander("🛠️ Data Refinery (only if you need to split very large data files; **NOTE: sanitize first**)"):
         ref_file = st.file_uploader("CSV to Refine/split", type=['csv'], key="refinery_csv_upload")
@@ -4139,11 +4127,7 @@ with tab_work:
             if zip_data: st.download_button("Download ZIP", zip_data, "refined.zip", "application/zip")
 
     # --scanning phase
-    all_inputs = []
-    if uploaded_files:
-        all_inputs.extend(list(uploaded_files))
-    if workspace_files:
-        all_inputs.extend(list(workspace_files))
+    all_inputs = list(workspace_files) if workspace_files else []
     if url_input:
         for u in url_input.split('\n'):
             if u.strip(): 
@@ -4153,8 +4137,8 @@ with tab_work:
                     time.sleep(URL_SCRAPE_RATE_LIMIT_SECONDS) # RATE LIMITING
     if manual_input: all_inputs.append(VirtualFile("manual.txt", manual_input))
 
-    if not all_inputs:
-        st.info("Upload a file in the sidebar or the Workspace uploader above to begin scanning.")
+    if not all_inputs and st.session_state['sketch'].total_rows_processed == 0:
+        st.info("Upload a file, paste text/URLs, or load an offline sketch above to begin.")
 
     if all_inputs:
         st.subheader("🚀 Scanning Phase")
