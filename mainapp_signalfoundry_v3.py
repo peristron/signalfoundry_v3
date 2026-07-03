@@ -5109,19 +5109,40 @@ with tab_work:
                     st.pyplot(fig_bayes)
                     plt.close(fig_bayes)
 
-        show_graph = proc_conf.compute_bigrams and scanner.global_bigrams and st.checkbox("🕸️ Show Network Graph & Advanced Analytics", value=True)
+#>>>>>>>>>>>>>>>>
+        GRAPH_RENDER_NODE_LIMIT = 90
+        GRAPH_RENDER_EDGE_LIMIT = 180
+
+        show_graph = (
+            proc_conf.compute_bigrams
+            and scanner.global_bigrams
+            and st.checkbox(
+                "🕸️ Show Network Graph & Advanced Analytics",
+                value=False,
+                help=(
+                    "Graph rendering can be heavy for dense corpora. Turn this on after "
+                    "reviewing the dashboard, themes, and keyphrases."
+                ),
+            )
+        )
+
         if show_graph:
             st.subheader("🔗 Network Graph")
             with st.expander("🛠️ Graph Settings & Physics", expanded=False):
                 c1, c2, c3 = st.columns(3)
                 min_edge_weight = c1.slider(
-                    "Min Link Frequency", 2, 100, 2, 
-                    help="Minimum shared occurrences required to draw a line. Increase this to remove weak connections and 'de-clutter' the graph."
+                    "Min Link Frequency", 2, 100, 3,
+                    help="Minimum shared occurrences required to draw a line. Increase this to remove weak connections and de-clutter the graph."
                 )
                 max_nodes_graph = c1.slider(
-                    "Max Nodes", 10, 200, 80, 
-                    help="Hard limit on the number of words displayed. Lower this to focus only on the absolute most vital connections."
+                    "Max Nodes", 10, GRAPH_RENDER_NODE_LIMIT, 55,
+                    help="Hard limit on the number of words displayed. Lower this if the graph fails to render or looks too dense."
                 )
+                max_edges_graph = c1.slider(
+                    "Max Links", 10, GRAPH_RENDER_EDGE_LIMIT, 90,
+                    help="Hard limit on graph links. Lower this for safer rendering on Streamlit Community Cloud."
+                )
+#<<<<<<<<<<<<<<<<
                 repulsion_val = c2.slider(
                     "Repulsion", 100, 3000, 1000, 
                     help="Physics Force: How strongly nodes push away from each other. Increase this if the graph looks like a tight ball."
@@ -5150,14 +5171,44 @@ with tab_work:
                     "Maturity Domain: Colors by which maturity domain the word belongs to (if 12-domain model is active)."
                 )
 
+#>>>>>>>>>>>>>>>>
             G = nx.DiGraph() if directed_graph else nx.Graph()
-            filtered_bigrams = {k: v for k, v in scanner.global_bigrams.items() if v >= min_edge_weight}
-            sorted_connections = sorted(filtered_bigrams.items(), key=lambda x: x[1], reverse=True)[:max_nodes_graph]
-            
+            sorted_connections = []
+            selected_nodes = set()
+
+            for (src, tgt), weight in sorted(
+                scanner.global_bigrams.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            ):
+                if weight < min_edge_weight:
+                    continue
+
+                src = str(src).strip()
+                tgt = str(tgt).strip()
+                if not src or not tgt or src == tgt:
+                    continue
+
+                next_nodes = selected_nodes | {src, tgt}
+                if len(next_nodes) > max_nodes_graph:
+                    continue
+
+                sorted_connections.append(((src, tgt), weight))
+                selected_nodes = next_nodes
+
+                if len(sorted_connections) >= max_edges_graph:
+                    break
+
             if sorted_connections:
-                G.add_edges_from((src, tgt, {'weight': w}) for (src, tgt), w in sorted_connections)
-                try: deg_centrality = nx.degree_centrality(G)
-                except: deg_centrality = {n: 1 for n in G.nodes()}
+                G.add_edges_from(
+                    (src, tgt, {"weight": weight})
+                    for (src, tgt), weight in sorted_connections
+                )
+                try:
+                    deg_centrality = nx.degree_centrality(G)
+                except Exception:
+                    deg_centrality = {node: 1 for node in G.nodes()}
+#<<<<<<<<<<<<<<<<
                 community_map = {}
                 ai_cluster_info = ""
                 
@@ -5234,8 +5285,24 @@ with tab_work:
                     physicsSettings={"solver": "forceAtlas2Based", "forceAtlas2Based": {"gravitationalConstant": -abs(repulsion_val), "springLength": edge_len_val, "springConstant": 0.05, "damping": 0.4}}
                 )
                 
-                st.info("💡 **Navigation Tip:** Use the buttons in the **bottom-right** of the graph to Zoom & Pan.")
-                agraph(nodes=nodes, edges=edges, config=config)
+#>>>>>>>>>>>>>>>>
+                if len(nodes) > GRAPH_RENDER_NODE_LIMIT or len(edges) > GRAPH_RENDER_EDGE_LIMIT:
+                    st.warning(
+                        "Graph is too dense to render safely in-browser. "
+                        "Lower Max Nodes / Max Links, or download the GEXF file for external graph tools."
+                    )
+                elif not nodes or not edges:
+                    st.info("Not enough graph structure to render with the current settings.")
+                else:
+                    st.info("💡 **Navigation Tip:** Use the buttons in the **bottom-right** of the graph to Zoom & Pan.")
+                    try:
+                        agraph(nodes=nodes, edges=edges, config=config)
+                    except Exception as e:
+                        st.warning(
+                            "The interactive graph could not render safely. "
+                            "Try lowering Max Nodes, Max Links, or disabling Physics."
+                        )
+#<<<<<<<<<<<<<<<<
 
                 # [NEW] Gephi Export
                 if st.button("📥 Download Graph File (.gexf)"):
