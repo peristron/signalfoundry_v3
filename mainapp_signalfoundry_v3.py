@@ -2900,7 +2900,8 @@ CONTEXT_REFERENCE_TERMS = {
     "hemisphere", "northern", "southern", "eastern", "western", "north",
     "south", "east", "west", "brisbane", "peking", "shrewsbury", "sumatra",
     "island", "school", "epoch", "century", "chapter", "page", "volume",
-    "city", "country", "region", "place", "location",
+    "city", "country", "region", "place", "location", "french", "revolution",
+    "mongolian", "mongols", "australian", "brazil", "courland", "wessex",
 }
 
 FRAGMENT_START_TERMS = {
@@ -2910,10 +2911,23 @@ FRAGMENT_START_TERMS = {
 
 FRAGMENT_END_TERMS = {
     "unfamiliar", "little", "another", "however", "therefore", "perhaps",
-    "again", "soon", "early", "late",
+    "again", "soon", "early", "late", "said", "cried", "asked", "told",
+}
+
+GENERIC_BIGRAM_END_TERMS = {
+    "said", "cried", "asked", "told", "made", "went", "came", "looked",
+    "seemed", "became", "found",
 }
 
 PATTERN_BASED_FAMILY_RULES = [
+    (
+        re.compile(
+            r"\b(?:book|committee|policy|rule|rules|authority|official|governance)\b",
+            re.IGNORECASE,
+        ),
+        "Authority / Legitimacy",
+        5,
+    ),
     (
         re.compile(
             r"\b(?:exactly\s+)?(?:alike|same|identical|uniform|standardi[sz]ed|interchangeable|homogeneous)\b",
@@ -3166,6 +3180,9 @@ def signal_phrase_quality(signal: str, signal_type: str, support: int, distincti
     if parts[0] in FRAGMENT_START_TERMS or parts[-1] in FRAGMENT_END_TERMS:
         score -= 18
         reasons.append("phrase may be a fragment")
+    if len(parts) == 2 and parts[-1] in GENERIC_BIGRAM_END_TERMS:
+        score -= 20
+        reasons.append("generic verb pairing")
     if all(part in CONTEXT_REFERENCE_TERMS for part in parts):
         score -= 25
         reasons.append("mostly context/reference language")
@@ -3199,16 +3216,19 @@ def classify_signal_role(
 
     if parts and all(part in CONTEXT_REFERENCE_TERMS for part in parts):
         return "Context / Reference", "Mostly location, reference, or named-context language."
+    if len(parts) == 2 and parts[-1] in GENERIC_BIGRAM_END_TERMS:
+        return "Low-Specificity", "The phrase is mostly a generic verb pairing rather than a stable concept."
 
-    if phrase_quality < 45:
+    if phrase_quality < 50:
         return "Supporting Signal", "Potentially meaningful, but the phrase is not clean enough to lead the analysis."
 
     high_priority = SIGNAL_TYPE_PRIORITY.get(signal_type, 1.0) >= 1.15
-    enough_evidence = support >= 4 or evidence_count >= 2
-    if high_priority and enough_evidence:
+    enough_evidence = support >= 5 or evidence_count >= 3
+    high_lift_candidate = phrase_quality >= 70 and distinctiveness >= 0.65
+    if high_priority and enough_evidence and high_lift_candidate:
         return "Core Insight", "Strong enough to help shape the top-level read."
 
-    if support >= 5 and evidence_count >= 2 and phrase_quality >= 60:
+    if support >= 7 and evidence_count >= 3 and phrase_quality >= 75:
         return "Core Insight", "Repeated and clear enough to help shape the top-level read."
 
     return "Supporting Signal", "Useful supporting evidence, but not necessarily the center of the analysis."
@@ -3244,6 +3264,87 @@ def build_ranking_rationale(
 ) -> str:
     details = ", ".join(phrase_quality_reasons[:3]) if phrase_quality_reasons else "general signal strength"
     return f"{role}: {role_reason} Interpretive lift {lift_score}/100 based on {details}."
+
+def signal_token_set(signal: str) -> Set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z][a-z-]+", str(signal).lower())
+        if token not in LOW_INFORMATION_SIGNAL_TERMS
+    }
+
+def is_near_duplicate_signal(candidate: pd.Series, selected_rows: List[pd.Series]) -> bool:
+    candidate_terms = signal_token_set(candidate.get("Signal", ""))
+    if not candidate_terms:
+        return False
+    for selected in selected_rows:
+        selected_terms = signal_token_set(selected.get("Signal", ""))
+        if not selected_terms:
+            continue
+        overlap = len(candidate_terms & selected_terms)
+        overlap_ratio = overlap / max(1, min(len(candidate_terms), len(selected_terms)))
+        same_type = candidate.get("Signal Type") == selected.get("Signal Type")
+        same_role = candidate.get("Signal Role") == selected.get("Signal Role")
+        if overlap_ratio >= 0.67:
+            return True
+        if overlap_ratio >= 0.5 and (same_type or same_role):
+            return True
+    return False
+
+def select_balanced_insight_cards(df: pd.DataFrame, top_n: int) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    sorted_df = df.copy()
+    sorted_df["Role Priority"] = sorted_df["Signal Role"].map(SIGNAL_ROLE_PRIORITY).fillna(1)
+    sorted_df = sorted_df.sort_values(
+        ["Role Priority", "Interpretive Lift", "Evidence Strength", "Distinctiveness"],
+        ascending=[False, False, False, False],
+    )
+
+    role_caps = {
+        "Core Insight": max(4, min(6, top_n - 3)),
+        "Supporting Signal": 3,
+        "Supporting Motif": 2,
+        "Context / Reference": 2,
+        "Low-Specificity": 2,
+    }
+    role_counts = Counter()
+    selected_rows = []
+
+    for _, row in sorted_df.iterrows():
+        role = row.get("Signal Role", "Supporting Signal")
+        if role_counts[role] >= role_caps.get(role, top_n):
+            continue
+        if is_near_duplicate_signal(row, selected_rows):
+            continue
+        selected_rows.append(row)
+        role_counts[role] += 1
+        if len(selected_rows) >= top_n:
+            break
+
+    if len(selected_rows) < top_n:
+        for _, row in sorted_df.iterrows():
+            if any(row.get("Signal") == selected.get("Signal") for selected in selected_rows):
+                continue
+            if is_near_duplicate_signal(row, selected_rows):
+                continue
+            selected_rows.append(row)
+            if len(selected_rows) >= top_n:
+                break
+
+    if len(selected_rows) < top_n:
+        for _, row in sorted_df.iterrows():
+            if any(row.get("Signal") == selected.get("Signal") for selected in selected_rows):
+                continue
+            selected_rows.append(row)
+            if len(selected_rows) >= top_n:
+                break
+
+    if not selected_rows:
+        return sorted_df.head(top_n).drop(columns=["Role Priority"], errors="ignore").reset_index(drop=True)
+
+    result = pd.DataFrame(selected_rows).drop(columns=["Role Priority"], errors="ignore")
+    return result.reset_index(drop=True)
 
 
 def build_insight_cards(
@@ -3352,12 +3453,7 @@ def build_insight_cards(
     df = pd.DataFrame(rows)
     if df.empty:
         return df
-    df["Role Priority"] = df["Signal Role"].map(SIGNAL_ROLE_PRIORITY).fillna(1)
-    df = df.sort_values(
-        ["Role Priority", "Interpretive Lift", "Evidence Strength", "Distinctiveness"],
-        ascending=[False, False, False, False],
-    ).drop(columns=["Role Priority"])
-    return df.head(top_n).reset_index(drop=True)
+    return select_balanced_insight_cards(df, top_n)
 
 
 def build_ai_insight_context(insight_df: pd.DataFrame, max_cards: int = 6) -> str:
