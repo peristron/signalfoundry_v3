@@ -2888,6 +2888,31 @@ SIGNAL_TYPE_PRIORITY = {
     "Absence / Weak Signal": 0.2,
 }
 
+SIGNAL_ROLE_PRIORITY = {
+    "Core Insight": 4,
+    "Supporting Signal": 3,
+    "Supporting Motif": 2,
+    "Context / Reference": 1,
+    "Low-Specificity": 0,
+}
+
+CONTEXT_REFERENCE_TERMS = {
+    "hemisphere", "northern", "southern", "eastern", "western", "north",
+    "south", "east", "west", "brisbane", "peking", "shrewsbury", "sumatra",
+    "island", "school", "epoch", "century", "chapter", "page", "volume",
+    "city", "country", "region", "place", "location",
+}
+
+FRAGMENT_START_TERMS = {
+    "pressed", "made", "awoke", "said", "called", "went", "came", "took",
+    "began", "became", "seemed", "found", "turned", "looked", "asked",
+}
+
+FRAGMENT_END_TERMS = {
+    "unfamiliar", "little", "another", "however", "therefore", "perhaps",
+    "again", "soon", "early", "late",
+}
+
 PATTERN_BASED_FAMILY_RULES = [
     (
         re.compile(
@@ -3110,6 +3135,116 @@ def confidence_label(support: int, evidence_count: int, distinctiveness: float) 
         return "Medium"
     return "Low"
 
+def signal_phrase_quality(signal: str, signal_type: str, support: int, distinctiveness: float) -> Tuple[int, List[str]]:
+    normalized = " ".join(str(signal).lower().split())
+    parts = normalized.split()
+    reasons = []
+    score = 50
+
+    if not parts:
+        return 0, ["empty signal"]
+
+    if 1 <= len(parts) <= 3:
+        score += 10
+        reasons.append("compact phrase")
+    if len(parts) == 2:
+        score += 5
+        reasons.append("readable two-word signal")
+    if support >= 5:
+        score += 8
+        reasons.append("repeated evidence")
+    if distinctiveness >= 0.8:
+        score += 8
+        reasons.append("distinctive pairing")
+    if signal_type not in {"Theme / Topic", "Low-Specificity Signal"}:
+        score += 8
+        reasons.append("semantic category match")
+
+    if is_low_information_signal(normalized, support, distinctiveness):
+        score -= 35
+        reasons.append("generic wording")
+    if parts[0] in FRAGMENT_START_TERMS or parts[-1] in FRAGMENT_END_TERMS:
+        score -= 18
+        reasons.append("phrase may be a fragment")
+    if all(part in CONTEXT_REFERENCE_TERMS for part in parts):
+        score -= 25
+        reasons.append("mostly context/reference language")
+    elif any(part in CONTEXT_REFERENCE_TERMS for part in parts) and support <= 3:
+        score -= 12
+        reasons.append("context-heavy phrase")
+
+    return max(0, min(100, score)), reasons
+
+def classify_signal_role(
+    signal: str,
+    signal_type: str,
+    support: int,
+    distinctiveness: float,
+    evidence_count: int,
+    phrase_quality: int,
+) -> Tuple[str, str]:
+    normalized = " ".join(str(signal).lower().split())
+    parts = normalized.split()
+
+    if signal_type == "Low-Specificity Signal" or is_low_information_signal(normalized, support, distinctiveness):
+        return "Low-Specificity", "Generic or connective wording; useful mainly as a weak lead."
+
+    if signal_type == "Absence / Weak Signal":
+        return "Supporting Signal", "Expected concept check rather than an organically discovered core signal."
+
+    if signal_type == "Motif / Image Pattern":
+        if parts and all(part in CONTEXT_REFERENCE_TERMS for part in parts):
+            return "Context / Reference", "Mostly location, reference, or descriptive setting language."
+        return "Supporting Motif", "Recurring image language that may support interpretation."
+
+    if parts and all(part in CONTEXT_REFERENCE_TERMS for part in parts):
+        return "Context / Reference", "Mostly location, reference, or named-context language."
+
+    if phrase_quality < 45:
+        return "Supporting Signal", "Potentially meaningful, but the phrase is not clean enough to lead the analysis."
+
+    high_priority = SIGNAL_TYPE_PRIORITY.get(signal_type, 1.0) >= 1.15
+    enough_evidence = support >= 4 or evidence_count >= 2
+    if high_priority and enough_evidence:
+        return "Core Insight", "Strong enough to help shape the top-level read."
+
+    if support >= 5 and evidence_count >= 2 and phrase_quality >= 60:
+        return "Core Insight", "Repeated and clear enough to help shape the top-level read."
+
+    return "Supporting Signal", "Useful supporting evidence, but not necessarily the center of the analysis."
+
+def interpretive_lift_score(
+    signal_type: str,
+    role: str,
+    support: int,
+    distinctiveness: float,
+    evidence_count: int,
+    phrase_quality: int,
+) -> int:
+    support_score = min(math.log1p(max(support, 0)) * 12, 30)
+    distinctiveness_score = min(max(distinctiveness, 0.0) * 20, 20)
+    evidence_score = min(evidence_count * 8, 20)
+    family_score = SIGNAL_TYPE_PRIORITY.get(signal_type, 1.0) * 8
+    quality_score = phrase_quality * 0.18
+    role_adjustment = {
+        "Core Insight": 14,
+        "Supporting Signal": 5,
+        "Supporting Motif": 0,
+        "Context / Reference": -12,
+        "Low-Specificity": -25,
+    }.get(role, 0)
+    score = support_score + distinctiveness_score + evidence_score + family_score + quality_score + role_adjustment
+    return int(max(0, min(100, round(score))))
+
+def build_ranking_rationale(
+    role: str,
+    role_reason: str,
+    phrase_quality_reasons: List[str],
+    lift_score: int,
+) -> str:
+    details = ", ".join(phrase_quality_reasons[:3]) if phrase_quality_reasons else "general signal strength"
+    return f"{role}: {role_reason} Interpretive lift {lift_score}/100 based on {details}."
+
 
 def build_insight_cards(
     scanner: StreamScanner,
@@ -3117,13 +3252,11 @@ def build_insight_cards(
     expected_terms_raw: str = "",
     top_n: int = 8,
 ) -> pd.DataFrame:
-    theme_df = build_theme_evidence_cards(scanner, counts, top_n=max(top_n * 2, 12))
+    theme_df = build_theme_evidence_cards(scanner, counts, top_n=max(top_n * 4, 30))
     rows = []
     used = set()
 
     for _, row in theme_df.iterrows():
-        if len(rows) >= top_n:
-            break
         signal = str(row.get("Theme Evidence", "")).strip()
         if not signal or signal in used:
             continue
@@ -3153,13 +3286,43 @@ def build_insight_cards(
             support=support,
             distinctiveness=distinctiveness,
         )
+        phrase_quality, phrase_quality_reasons = signal_phrase_quality(
+            signal=signal,
+            signal_type=calibrated_type,
+            support=support,
+            distinctiveness=distinctiveness,
+        )
+        signal_role, role_reason = classify_signal_role(
+            signal=signal,
+            signal_type=calibrated_type,
+            support=support,
+            distinctiveness=distinctiveness,
+            evidence_count=len(evidence),
+            phrase_quality=phrase_quality,
+        )
+        lift_score = interpretive_lift_score(
+            signal_type=calibrated_type,
+            role=signal_role,
+            support=support,
+            distinctiveness=distinctiveness,
+            evidence_count=len(evidence),
+            phrase_quality=phrase_quality,
+        )
 
         rows.append({
             "Signal": signal,
             "Signal Type": calibrated_type,
+            "Signal Role": signal_role,
+            "Interpretive Lift": lift_score,
             "Evidence Strength": support,
             "Distinctiveness": round(distinctiveness, 3),
             "Confidence": confidence,
+            "Ranking Rationale": build_ranking_rationale(
+                signal_role,
+                role_reason,
+                phrase_quality_reasons,
+                lift_score,
+            ),
             "Representative Evidence": summarize_evidence(evidence),
             "Interpretation": calibrated_interpretation,
             "Follow-up Question": calibrated_question,
@@ -3175,15 +3338,26 @@ def build_insight_cards(
             rows.append({
                 "Signal": signal,
                 "Signal Type": "Absence / Weak Signal",
+                "Signal Role": "Supporting Signal",
+                "Interpretive Lift": 35,
                 "Evidence Strength": int(row["Observed Count"]),
                 "Distinctiveness": 0.0,
                 "Confidence": "Medium" if int(row["Observed Count"]) == 0 else "Low",
+                "Ranking Rationale": "Supporting Signal: expected concept check rather than an organically discovered core signal.",
                 "Representative Evidence": "Expected concept was missing or weak in the observed vocabulary.",
                 "Interpretation": f"'{signal}' was expected but is {str(row['Status']).lower()}. This may be meaningful absence, source mismatch, or vocabulary mismatch.",
                 "Follow-up Question": f"Should '{signal}' be present in this corpus, and if so, why is it not showing up clearly?",
             })
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df["Role Priority"] = df["Signal Role"].map(SIGNAL_ROLE_PRIORITY).fillna(1)
+    df = df.sort_values(
+        ["Role Priority", "Interpretive Lift", "Evidence Strength", "Distinctiveness"],
+        ascending=[False, False, False, False],
+    ).drop(columns=["Role Priority"])
+    return df.head(top_n).reset_index(drop=True)
 
 
 def build_ai_insight_context(insight_df: pd.DataFrame, max_cards: int = 6) -> str:
@@ -3193,6 +3367,8 @@ def build_ai_insight_context(insight_df: pd.DataFrame, max_cards: int = 6) -> st
     for idx, row in insight_df.head(max_cards).iterrows():
         lines.append(
             f"{idx + 1}. {row['Signal']} | {row['Signal Type']} | "
+            f"role={row.get('Signal Role', 'Signal')} | "
+            f"lift={row.get('Interpretive Lift', 'n/a')} | "
             f"confidence={row['Confidence']} | interpretation={row['Interpretation']}"
         )
     return "\n".join(lines)
@@ -3224,16 +3400,24 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
     usable = insight_df[
         ~insight_df["Signal Type"].isin(["Absence / Weak Signal", "Low-Specificity Signal"])
     ].copy()
+    if "Signal Role" in usable.columns:
+        role_filtered = usable[
+            ~usable["Signal Role"].isin(["Context / Reference", "Low-Specificity"])
+        ].copy()
+        if not role_filtered.empty:
+            usable = role_filtered
     if usable.empty:
         usable = insight_df.copy()
 
     confidence_weight = {"High": 3.0, "Medium": 1.5, "Low": 0.5}
     family_priority = usable["Signal Type"].map(SIGNAL_TYPE_PRIORITY).fillna(1.0)
+    lift_component = usable["Interpretive Lift"].fillna(50).astype(float) / 10 if "Interpretive Lift" in usable.columns else 0
     usable["Shape Weight"] = (
         (
             usable["Evidence Strength"].fillna(0).astype(float)
             + usable["Distinctiveness"].fillna(0).astype(float) * 2
             + usable["Confidence"].map(confidence_weight).fillna(0.5)
+            + lift_component
         )
         * family_priority
     )
@@ -3276,7 +3460,10 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
             "Signal": str(row["Signal"]),
             "Signal Type": str(row["Signal Type"]),
             "Confidence": str(row["Confidence"]),
+            "Signal Role": str(row.get("Signal Role", "Supporting Signal")),
+            "Interpretive Lift": int(row.get("Interpretive Lift", 0)),
             "Evidence Strength": int(row["Evidence Strength"]),
+            "Ranking Rationale": str(row.get("Ranking Rationale", "")),
             "Interpretation": first_sentence(row["Interpretation"], 220),
             "Evidence": concise_sentence(row["Representative Evidence"], 320),
             "Question": str(row["Follow-up Question"]),
@@ -3316,9 +3503,14 @@ def render_resource_shape_panel(insight_df: pd.DataFrame):
             st.markdown("#### Key Insights")
             for idx, item in enumerate(shape["key_insights"], start=1):
                 with st.expander(
-                    f"{idx}. {item['Signal Type']} · {item['Signal']}",
+                    f"{idx}. {item.get('Signal Role', 'Signal')} · {item['Signal Type']} · {item['Signal']}",
                     expanded=(idx <= 3),
                 ):
+                    c_role, c_lift = st.columns(2)
+                    c_role.metric("Signal Role", item.get("Signal Role", "Supporting Signal"))
+                    c_lift.metric("Interpretive Lift", f"{item.get('Interpretive Lift', 0)}/100")
+                    if item.get("Ranking Rationale"):
+                        st.caption(item["Ranking Rationale"])
                     st.write(item["Interpretation"])
                     st.markdown("**Evidence preview**")
                     st.write(item["Evidence"])
@@ -4158,6 +4350,16 @@ def signal_type_distribution_dataframe(insight_df: pd.DataFrame) -> pd.DataFrame
         .reset_index(name="Cards")
     )
 
+def signal_role_distribution_dataframe(insight_df: pd.DataFrame) -> pd.DataFrame:
+    if insight_df.empty or "Signal Role" not in insight_df.columns:
+        return pd.DataFrame(columns=["Signal Role", "Cards"])
+    return (
+        insight_df["Signal Role"]
+        .value_counts()
+        .rename_axis("Signal Role")
+        .reset_index(name="Cards")
+    )
+
 def resource_shape_to_dataframes(resource_shape: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
     families_df = pd.DataFrame(resource_shape.get("families", []))
     key_insights_df = pd.DataFrame(resource_shape.get("key_insights", []))
@@ -4185,11 +4387,18 @@ def calibration_notes_markdown(
     run_label: str,
 ) -> str:
     signal_mix = signal_type_distribution_dataframe(insight_df)
+    role_mix = signal_role_distribution_dataframe(insight_df)
     top_signal_types = []
     if not signal_mix.empty:
         top_signal_types = [
             f"{row['Signal Type']} ({row['Cards']})"
             for _, row in signal_mix.head(5).iterrows()
+        ]
+    top_roles = []
+    if not role_mix.empty:
+        top_roles = [
+            f"{row['Signal Role']} ({row['Cards']})"
+            for _, row in role_mix.head(5).iterrows()
         ]
 
     low_specificity_count = 0
@@ -4217,6 +4426,10 @@ def calibration_notes_markdown(
         "## Signal Mix",
         "",
         ", ".join(top_signal_types) if top_signal_types else "No signal mix available.",
+        "",
+        "## Signal Roles",
+        "",
+        ", ".join(top_roles) if top_roles else "No signal role mix available.",
         "",
         "## Calibration Review Prompts",
         "",
@@ -4305,6 +4518,7 @@ def build_calibration_export_zip(
         zf.writestr("resource_shape_families.csv", dataframe_to_csv_bytes(families_df))
         zf.writestr("resource_shape_key_insights.csv", dataframe_to_csv_bytes(key_insights_df))
         zf.writestr("signal_type_distribution.csv", dataframe_to_csv_bytes(signal_type_distribution_dataframe(insight_df)))
+        zf.writestr("signal_role_distribution.csv", dataframe_to_csv_bytes(signal_role_distribution_dataframe(insight_df)))
         zf.writestr("text_stats.csv", dataframe_to_csv_bytes(pd.DataFrame([text_stats])))
         zf.writestr("top_terms.csv", dataframe_to_csv_bytes(top_terms_dataframe(combined_counts, 150)))
         zf.writestr("top_bigrams.csv", dataframe_to_csv_bytes(top_bigrams_dataframe(scanner.global_bigrams, 150)))
@@ -5182,6 +5396,12 @@ with tab_work:
                     "Use these cards to inspect the evidence behind the Resource Shape. "
                     "They are supporting leads, not the final answer."
                 )
+                role_filter = st.multiselect(
+                    "Filter by signal role",
+                    sorted(insight_df["Signal Role"].unique()) if "Signal Role" in insight_df.columns else [],
+                    default=[],
+                    help="Core Insight items are strongest. Supporting, motif, context, and low-specificity items help explain what was promoted or demoted.",
+                )
                 signal_type_filter = st.multiselect(
                     "Filter by signal type",
                     sorted(insight_df["Signal Type"].unique()),
@@ -5189,21 +5409,28 @@ with tab_work:
                     help="Leave empty to show all insight cards.",
                 )
                 visible_insights = insight_df
+                if role_filter and "Signal Role" in visible_insights.columns:
+                    visible_insights = visible_insights[
+                        visible_insights["Signal Role"].isin(role_filter)
+                    ]
                 if signal_type_filter:
-                    visible_insights = insight_df[
-                        insight_df["Signal Type"].isin(signal_type_filter)
+                    visible_insights = visible_insights[
+                        visible_insights["Signal Type"].isin(signal_type_filter)
                     ]
 
                 for idx, row in visible_insights.iterrows():
                     title = (
-                        f"{row['Confidence']} confidence · {row['Signal Type']} · "
+                        f"{row.get('Signal Role', 'Signal')} · {row['Confidence']} confidence · {row['Signal Type']} · "
                         f"{row['Signal']}"
                     )
                     with st.expander(title, expanded=(idx < 3)):
-                        m1, m2, m3 = st.columns(3)
+                        m1, m2, m3, m4 = st.columns(4)
                         m1.metric("Evidence Strength", row["Evidence Strength"])
                         m2.metric("Distinctiveness", row["Distinctiveness"])
                         m3.metric("Confidence", row["Confidence"])
+                        m4.metric("Interpretive Lift", f"{row.get('Interpretive Lift', 0)}/100")
+                        if row.get("Ranking Rationale"):
+                            st.caption(row["Ranking Rationale"])
                         st.markdown("**Interpretation**")
                         st.write(row["Interpretation"])
                         st.markdown("**Representative Evidence**")
