@@ -2922,11 +2922,19 @@ GENERIC_BIGRAM_END_TERMS = {
 PATTERN_BASED_FAMILY_RULES = [
     (
         re.compile(
-            r"\b(?:book|committee|policy|rule|rules|authority|official|governance)\b",
+            r"\b(?:mending\s+apparatus|power\s+station|communication-system|central\s+power|apparatus|infrastructure|system|machine)\b",
             re.IGNORECASE,
         ),
-        "Authority / Legitimacy",
-        5,
+        "Infrastructure / System Dependence",
+        7,
+    ),
+    (
+        re.compile(
+            r"\b(?:machine\s+stops?|stoppage|collapse|failure|outage|broken|defect|dying)\b",
+            re.IGNORECASE,
+        ),
+        "Risk / Failure Mode",
+        7,
     ),
     (
         re.compile(
@@ -2934,6 +2942,14 @@ PATTERN_BASED_FAMILY_RULES = [
             re.IGNORECASE,
         ),
         "Standardization / Loss of Difference",
+        7,
+    ),
+    (
+        re.compile(
+            r"\b(?:book|committee|policy|rule|rules|authority|official|governance)\b",
+            re.IGNORECASE,
+        ),
+        "Authority / Legitimacy",
         5,
     ),
     (
@@ -2959,6 +2975,30 @@ PATTERN_BASED_FAMILY_RULES = [
         ),
         "Risk / Failure Mode",
         4,
+    ),
+]
+
+FORCED_SIGNAL_FAMILY_RULES = [
+    (
+        re.compile(
+            r"\b(?:mending\s+apparatus|power\s+station|communication-system|central\s+power)\b",
+            re.IGNORECASE,
+        ),
+        "Infrastructure / System Dependence",
+    ),
+    (
+        re.compile(
+            r"\b(?:machine\s+stops?|stoppage|collapse|failure|outage)\b",
+            re.IGNORECASE,
+        ),
+        "Risk / Failure Mode",
+    ),
+    (
+        re.compile(
+            r"\b(?:exactly\s+)?(?:alike|same|identical|uniform|standardi[sz]ed|interchangeable|homogeneous)\b",
+            re.IGNORECASE,
+        ),
+        "Standardization / Loss of Difference",
     ),
 ]
 
@@ -3033,6 +3073,13 @@ def calibrate_signal_card(
             ),
             f"Is '{signal}' carrying real meaning here, or is it mostly connective language?",
         )
+
+    for pattern, forced_family in FORCED_SIGNAL_FAMILY_RULES:
+        if pattern.search(signal):
+            config = SEMANTIC_SIGNAL_FAMILIES[forced_family]
+            related = f" Related language includes: {related_terms}." if related_terms else ""
+            interpretation = f"{config['interpretation']}{related}"
+            return forced_family, interpretation, config["question"]
 
     family, family_score = semantic_family_score(
         signal,
