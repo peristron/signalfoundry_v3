@@ -2922,10 +2922,26 @@ GENERIC_BIGRAM_END_TERMS = {
 PATTERN_BASED_FAMILY_RULES = [
     (
         re.compile(
-            r"\b(?:mending\s+apparatus|power\s+station|communication-system|central\s+power|apparatus|infrastructure|system|machine)\b",
+            r"\b(?:mending\s+apparatus|power\s+station|communication-system|central\s+power|infrastructure)\b",
             re.IGNORECASE,
         ),
         "Infrastructure / System Dependence",
+        7,
+    ),
+    (
+        re.compile(
+            r"\b(?:public\s+nurseries|nurseries|parents?|children|duties|assigned|institutional|social\s+design)\b",
+            re.IGNORECASE,
+        ),
+        "Institutional Structure / Social Design",
+        7,
+    ),
+    (
+        re.compile(
+            r"\b(?:advanced\s+thanks|thanks\s+machine|blessed\s+machine|progress|praise|worship|belief|ideology)\b",
+            re.IGNORECASE,
+        ),
+        "Aspiration / Ideology",
         7,
     ),
     (
@@ -2985,6 +3001,20 @@ FORCED_SIGNAL_FAMILY_RULES = [
             re.IGNORECASE,
         ),
         "Infrastructure / System Dependence",
+    ),
+    (
+        re.compile(
+            r"\b(?:public\s+nurseries|nurseries)\b",
+            re.IGNORECASE,
+        ),
+        "Institutional Structure / Social Design",
+    ),
+    (
+        re.compile(
+            r"\b(?:advanced\s+thanks|thanks\s+machine|blessed\s+machine)\b",
+            re.IGNORECASE,
+        ),
+        "Aspiration / Ideology",
     ),
     (
         re.compile(
