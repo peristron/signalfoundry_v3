@@ -3584,6 +3584,19 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
 
     confidence_weight = {"High": 3.0, "Medium": 1.5, "Low": 0.5}
     family_priority = usable["Signal Type"].map(SIGNAL_TYPE_PRIORITY).fillna(1.0)
+    role_shape_weight = (
+        usable["Signal Role"]
+        .map({
+            "Core Insight": 1.0,
+            "Supporting Signal": 0.8,
+            "Supporting Motif": 0.35,
+            "Context / Reference": 0.15,
+            "Low-Specificity": 0.1,
+        })
+        .fillna(0.75)
+        if "Signal Role" in usable.columns
+        else 1.0
+    )
     lift_component = usable["Interpretive Lift"].fillna(50).astype(float) / 10 if "Interpretive Lift" in usable.columns else 0
     usable["Shape Weight"] = (
         (
@@ -3593,6 +3606,7 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
             + lift_component
         )
         * family_priority
+        * role_shape_weight
     )
 
     family_rows = (
