@@ -4112,6 +4112,275 @@ def fig_to_png_bytes(fig):
 def dataframe_to_csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8-sig")
 
+def make_json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): make_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [make_json_safe(v) for v in value]
+    if isinstance(value, Counter):
+        return {str(k): make_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        return float(value)
+    if pd.isna(value) if not isinstance(value, (dict, list, tuple, set)) else False:
+        return None
+    return value
+
+def json_to_bytes(payload: Dict[str, Any]) -> bytes:
+    return json.dumps(make_json_safe(payload), indent=2, ensure_ascii=False).encode("utf-8")
+
+def top_terms_dataframe(counts: Counter, top_n: int = 100) -> pd.DataFrame:
+    return pd.DataFrame(
+        [{"Term": term, "Count": count} for term, count in counts.most_common(top_n)]
+    )
+
+def top_bigrams_dataframe(bigrams: Counter, top_n: int = 100) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"Bigram": f"{w1} {w2}", "Count": count}
+            for (w1, w2), count in bigrams.most_common(top_n)
+        ]
+    )
+
+def counter_dataframe(counter: Counter, key_name: str, value_name: str = "Count", top_n: int = 100) -> pd.DataFrame:
+    return pd.DataFrame(
+        [{key_name: key, value_name: value} for key, value in counter.most_common(top_n)]
+    )
+
+def signal_type_distribution_dataframe(insight_df: pd.DataFrame) -> pd.DataFrame:
+    if insight_df.empty or "Signal Type" not in insight_df.columns:
+        return pd.DataFrame(columns=["Signal Type", "Cards"])
+    return (
+        insight_df["Signal Type"]
+        .value_counts()
+        .rename_axis("Signal Type")
+        .reset_index(name="Cards")
+    )
+
+def resource_shape_to_dataframes(resource_shape: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    families_df = pd.DataFrame(resource_shape.get("families", []))
+    key_insights_df = pd.DataFrame(resource_shape.get("key_insights", []))
+    return families_df, key_insights_df
+
+def evidence_dataframe(scanner: StreamScanner, include_excerpts: bool) -> pd.DataFrame:
+    if not include_excerpts:
+        return pd.DataFrame(columns=["Evidence Snippets", "Evidence Limit Reached"])
+    rows = []
+    for item in scanner.evidence_docs:
+        rows.append({
+            "ID": item.get("id"),
+            "Date": item.get("date"),
+            "Category": item.get("category"),
+            "Excerpt": item.get("excerpt"),
+            "Unique Token Preview": ", ".join(item.get("tokens", [])[:40]),
+        })
+    return pd.DataFrame(rows)
+
+def calibration_notes_markdown(
+    scanner: StreamScanner,
+    insight_df: pd.DataFrame,
+    resource_shape: Dict[str, Any],
+    export_mode: str,
+    run_label: str,
+) -> str:
+    signal_mix = signal_type_distribution_dataframe(insight_df)
+    top_signal_types = []
+    if not signal_mix.empty:
+        top_signal_types = [
+            f"{row['Signal Type']} ({row['Cards']})"
+            for _, row in signal_mix.head(5).iterrows()
+        ]
+
+    low_specificity_count = 0
+    if not insight_df.empty and "Signal Type" in insight_df.columns:
+        low_specificity_count = int(
+            (insight_df["Signal Type"] == "Low-Specificity Signal").sum()
+        )
+
+    lines = [
+        "# Signal Foundry Calibration Export",
+        "",
+        f"- Run label: {run_label or 'Not provided'}",
+        f"- Export mode: {export_mode}",
+        f"- Created: {datetime.now().isoformat(timespec='seconds')}",
+        f"- Rows processed: {scanner.total_rows_processed:,}",
+        f"- Evidence snippets retained: {len(scanner.evidence_docs):,}",
+        f"- Evidence cap reached: {scanner.evidence_limit_reached}",
+        f"- Insight cards: {len(insight_df):,}",
+        f"- Low-specificity cards: {low_specificity_count:,}",
+        "",
+        "## Resource Shape",
+        "",
+        resource_shape.get("summary", "No Resource Shape summary available."),
+        "",
+        "## Signal Mix",
+        "",
+        ", ".join(top_signal_types) if top_signal_types else "No signal mix available.",
+        "",
+        "## Calibration Review Prompts",
+        "",
+        "1. Do the top signal families match a human reading of the source?",
+        "2. Are generic connector phrases being demoted into Low-Specificity Signal?",
+        "3. Are concrete systems, institutions, bodies, experiences, and ideas being separated cleanly?",
+        "4. Are the strongest cards useful as a starting point for interpretation?",
+        "5. Did changing sidebar settings materially improve or degrade the output?",
+    ]
+    return "\n".join(lines)
+
+def build_calibration_export_zip(
+    scanner: StreamScanner,
+    combined_counts: Counter,
+    insight_df: pd.DataFrame,
+    text_stats: Dict[str, Any],
+    proc_conf: ProcessingConfig,
+    export_mode: str,
+    run_label: str = "",
+    expected_terms_raw: str = "",
+) -> bytes:
+    include_excerpts = export_mode == "Full diagnostic export"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    resource_shape = build_resource_shape(insight_df)
+    families_df, key_insights_df = resource_shape_to_dataframes(resource_shape)
+
+    insight_export_df = insight_df.copy()
+    if not include_excerpts and "Representative Evidence" in insight_export_df.columns:
+        insight_export_df = insight_export_df.drop(columns=["Representative Evidence"])
+
+    total_words = max(sum(combined_counts.values()), 1)
+    npmi_df = calculate_npmi(scanner.global_bigrams, combined_counts, total_words)
+    tfidf_df = calculate_tfidf(scanner, top_n=100)
+    evidence_df = evidence_dataframe(scanner, include_excerpts)
+
+    settings_payload = {
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "run_label": run_label,
+        "export_mode": export_mode,
+        "includes_evidence_excerpts": include_excerpts,
+        "app_limits": {
+            "max_file_size_mb": MAX_FILE_SIZE_MB,
+            "max_topic_docs": MAX_TOPIC_DOCS,
+            "max_evidence_docs": MAX_EVIDENCE_DOCS,
+            "max_evidence_chars": MAX_EVIDENCE_CHARS,
+        },
+        "scan_totals": {
+            "rows_processed": scanner.total_rows_processed,
+            "total_tokens": sum(combined_counts.values()),
+            "unique_terms": len(combined_counts),
+            "topic_docs_sampled": len(scanner.topic_docs),
+            "evidence_snippets": len(scanner.evidence_docs),
+            "evidence_limit_reached": scanner.evidence_limit_reached,
+            "temporal_buckets": len(scanner.temporal_counts),
+            "category_buckets": len(scanner.category_counts),
+            "entities": len(scanner.entity_counts),
+        },
+        "processing_settings": {
+            "min_word_len": proc_conf.min_word_len,
+            "drop_integers": proc_conf.drop_integers,
+            "compute_bigrams": proc_conf.compute_bigrams,
+            "use_lemmatization": proc_conf.use_lemmatization,
+            "stopword_count": len(proc_conf.stopwords),
+            "excluded_speaker_count": len(proc_conf.excluded_speakers),
+            "partial_speaker_match": proc_conf.partial_speaker_match,
+        },
+        "hypothesis_concept_check": expected_terms_raw,
+        "text_stats": text_stats,
+        "resource_shape_summary": resource_shape.get("summary"),
+    }
+
+    notes_md = calibration_notes_markdown(
+        scanner=scanner,
+        insight_df=insight_df,
+        resource_shape=resource_shape,
+        export_mode=export_mode,
+        run_label=run_label,
+    )
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("calibration_run_summary.json", json_to_bytes(settings_payload))
+        zf.writestr("calibration_notes.md", notes_md.encode("utf-8"))
+        zf.writestr("insight_cards.csv", dataframe_to_csv_bytes(insight_export_df))
+        zf.writestr("resource_shape.json", json_to_bytes(resource_shape))
+        zf.writestr("resource_shape_families.csv", dataframe_to_csv_bytes(families_df))
+        zf.writestr("resource_shape_key_insights.csv", dataframe_to_csv_bytes(key_insights_df))
+        zf.writestr("signal_type_distribution.csv", dataframe_to_csv_bytes(signal_type_distribution_dataframe(insight_df)))
+        zf.writestr("text_stats.csv", dataframe_to_csv_bytes(pd.DataFrame([text_stats])))
+        zf.writestr("top_terms.csv", dataframe_to_csv_bytes(top_terms_dataframe(combined_counts, 150)))
+        zf.writestr("top_bigrams.csv", dataframe_to_csv_bytes(top_bigrams_dataframe(scanner.global_bigrams, 150)))
+        zf.writestr("top_entities.csv", dataframe_to_csv_bytes(counter_dataframe(scanner.entity_counts, "Entity", top_n=100)))
+        zf.writestr("npmi_phrases.csv", dataframe_to_csv_bytes(npmi_df.head(150)))
+        zf.writestr("tfidf_keyphrases.csv", dataframe_to_csv_bytes(tfidf_df.head(150)))
+        zf.writestr("evidence_snippets.csv", dataframe_to_csv_bytes(evidence_df))
+        zf.writestr(
+            "README.txt",
+            (
+                "Signal Foundry calibration export.\n\n"
+                "Use this package to compare repeated runs while tuning stopwords, "
+                "concept checks, signal calibration, and scan settings.\n\n"
+                "Safe exports omit representative evidence from insight_cards.csv. "
+                "Full diagnostic exports include evidence excerpts and should be shared carefully.\n"
+            ).encode("utf-8"),
+        )
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
+def render_calibration_export_panel(
+    scanner: StreamScanner,
+    combined_counts: Counter,
+    insight_df: pd.DataFrame,
+    text_stats: Dict[str, Any],
+    proc_conf: ProcessingConfig,
+    expected_terms_raw: str = "",
+):
+    st.divider()
+    with st.expander("🧪 Admin Calibration Export", expanded=False):
+        st.caption(
+            "Password-gated diagnostic export for calibration testing. "
+            "Use this when comparing repeated runs or sharing results for review."
+        )
+        export_mode = st.radio(
+            "Export mode",
+            ["Safe calibration export", "Full diagnostic export"],
+            index=0,
+            horizontal=False,
+            help=(
+                "Safe mode omits representative evidence from insight cards. "
+                "Full mode includes evidence snippets and should be treated as sensitive."
+            ),
+        )
+        run_label = st.text_input(
+            "Optional run label",
+            placeholder="Example: machine-stops-clean-txt-v4-default-settings",
+            help="Adds a human-readable label to the export summary.",
+        )
+        if export_mode == "Full diagnostic export":
+            st.warning(
+                "Full diagnostic export includes representative evidence excerpts. "
+                "Use only with anonymized or shareable material."
+            )
+
+        zip_bytes = build_calibration_export_zip(
+            scanner=scanner,
+            combined_counts=combined_counts,
+            insight_df=insight_df,
+            text_stats=text_stats,
+            proc_conf=proc_conf,
+            export_mode=export_mode,
+            run_label=run_label,
+            expected_terms_raw=expected_terms_raw,
+        )
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_label = re.sub(r"[^a-zA-Z0-9_-]+", "-", run_label.strip()).strip("-").lower()
+        label_part = f"_{safe_label}" if safe_label else ""
+        st.download_button(
+            "📦 Download calibration ZIP",
+            zip_bytes,
+            f"signal_foundry_calibration{label_part}_{timestamp}.zip",
+            "application/zip",
+            help="Downloads a ZIP containing CSV, JSON, and Markdown files for calibration review.",
+        )
+
 # 🤖 AI logic
 def call_llm_and_track_cost(system_prompt: str, user_prompt: str, config: dict):
     try:
@@ -4942,6 +5211,15 @@ with tab_work:
                     "insight_cards.csv",
                     "text/csv",
                 )
+                if st.session_state.get("authenticated"):
+                    render_calibration_export_panel(
+                        scanner=scanner,
+                        combined_counts=combined_counts,
+                        insight_df=insight_df,
+                        text_stats=text_stats,
+                        proc_conf=proc_conf,
+                        expected_terms_raw=insight_expected_terms,
+                    )
 
         with tab_main:
             if enable_sentiment:
