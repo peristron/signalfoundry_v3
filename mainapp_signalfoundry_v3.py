@@ -2769,12 +2769,40 @@ SEMANTIC_SIGNAL_FAMILIES = {
             "committee", "approval", "book", "law", "duties", "ownership",
             "accountable", "ritual", "worship", "prayer", "divine", "blessed",
             "praise", "official", "leader", "management", "government",
+            "constitution", "constitutional", "magistrate", "supreme", "court",
+            "judicial", "executive", "legislative", "sovereignty", "legitimate",
         },
         "interpretation": (
             "This suggests a legitimacy or authority structure: rules, committees, rituals, "
             "official texts, or accepted narratives that tell people what is normal or permissible."
         ),
         "question": "What authority is being accepted, questioned, or protected by this language?",
+    },
+    "Decision / Tradeoff": {
+        "markers": {
+            "decision", "decide", "choice", "tradeoff", "trade-off", "balance",
+            "compromise", "alternative", "option", "taxation", "taxes", "revenue",
+            "imports", "exports", "commerce", "regulation", "power", "powers",
+            "liberty", "security", "representation", "majority", "minority",
+        },
+        "interpretation": (
+            "This points to a decision or tradeoff structure: competing goods, powers, "
+            "constraints, or institutional choices that the text is asking readers to weigh."
+        ),
+        "question": "What tradeoff or institutional choice is being framed here?",
+    },
+    "Risk / Concern": {
+        "markers": {
+            "risk", "concern", "danger", "dangerous", "threat", "war", "armies",
+            "standing", "faction", "tyranny", "disorder", "instability",
+            "violence", "invasion", "security", "defense", "defence", "usurpation",
+            "corruption", "jealousy", "ambition", "oppression",
+        },
+        "interpretation": (
+            "This is risk or concern language. The text is marking what could go wrong, "
+            "what must be guarded against, or what danger justifies a proposed structure."
+        ),
+        "question": "What danger or failure is this language trying to prevent?",
     },
     "Risk / Failure Mode": {
         "markers": {
@@ -2808,6 +2836,10 @@ SEMANTIC_SIGNAL_FAMILIES = {
             "children", "duties", "assigned", "committee", "school", "organization",
             "team", "role", "roles", "department", "process", "stakeholder",
             "governance", "structure", "engagements", "gatherings",
+            "federal", "national", "state", "states", "government", "governments",
+            "representatives", "senate", "house", "congress", "union",
+            "confederacy", "republic", "legislature", "legislatures",
+            "department", "court", "jury", "convention",
         },
         "interpretation": (
             "This points to a social or institutional arrangement: how roles, duties, access, "
@@ -2880,6 +2912,8 @@ SIGNAL_TYPE_PRIORITY = {
     "Institutional Structure / Social Design": 1.25,
     "Standardization / Loss of Difference": 1.2,
     "Authority / Legitimacy": 1.15,
+    "Decision / Tradeoff": 1.15,
+    "Risk / Concern": 1.1,
     "Isolation / Disconnection": 1.1,
     "Embodiment / Lived Experience": 1.0,
     "Aspiration / Ideology": 0.95,
@@ -2903,12 +2937,15 @@ CONTEXT_REFERENCE_TERMS = {
     "island", "school", "epoch", "century", "chapter", "page", "volume",
     "city", "country", "region", "place", "location", "french", "revolution",
     "mongolian", "mongols", "australian", "brazil", "courland", "wessex",
+    "rhode", "carolina", "virginia", "maryland", "delaware", "pennsylvania",
+    "jersey", "connecticut", "georgia", "york", "mclean", "mcleans",
 }
 
 BOILERPLATE_SIGNAL_TERMS = {
     "edition", "editions", "copyright", "license", "licence", "gutenberg",
     "transcriber", "publisher", "published", "publication", "printer",
     "printing", "press", "packet", "journal", "newspaper", "magazine",
+    "advertiser", "gazette", "edition", "mclean", "mcleans",
     "appendix", "preface", "foreword", "introduction", "contents", "index",
     "chapter", "section", "volume", "vol", "page", "pages", "continued",
     "download", "ebook", "archive", "source", "scan", "scanned", "ocr",
@@ -2921,13 +2958,18 @@ BOILERPLATE_SIGNAL_PHRASES = {
     "all rights",
     "rights reserved",
     "project gutenberg",
+    "daily advertiser",
+    "independent journal",
+    "york packet",
+    "mcleans edition",
+    "state york",
 }
 
 BOILERPLATE_SIGNAL_PATTERNS = [
     re.compile(
         r"\b(?:edition|editions|copyright|license|licence|gutenberg|transcriber|"
         r"publisher|published|publication|printer|printing|packet|journal|"
-        r"newspaper|magazine|appendix|preface|foreword|contents|index|"
+        r"newspaper|magazine|advertiser|gazette|mcleans?|appendix|preface|foreword|contents|index|"
         r"chapter|section|volume|page|continued|ebook|archive|ocr|proofread|"
         r"proofreading|errata|header|footer|rights\s+reserved)\b",
         re.IGNORECASE,
@@ -2950,6 +2992,45 @@ GENERIC_BIGRAM_END_TERMS = {
 }
 
 PATTERN_BASED_FAMILY_RULES = [
+    (
+        re.compile(
+            r"\b(?:federal\s+government|national\s+government|state\s+governments?|"
+            r"house\s+representatives|trial\s+jury|state\s+legislatures?|"
+            r"executive\s+department|legislative\s+body|supreme\s+court|"
+            r"proposed\s+constitution|constitution|union|confederacy|republic)\b",
+            re.IGNORECASE,
+        ),
+        "Institutional Structure / Social Design",
+        8,
+    ),
+    (
+        re.compile(
+            r"\b(?:chief\s+magistrate|supreme\s+court|judicial\s+power|"
+            r"executive\s+power|legislative\s+authority|constitutional\s+authority|"
+            r"authority|sovereignty)\b",
+            re.IGNORECASE,
+        ),
+        "Authority / Legitimacy",
+        8,
+    ),
+    (
+        re.compile(
+            r"\b(?:standing\s+armies|faction|tyranny|invasion|war|security|"
+            r"public\s+danger|internal\s+violence|usurpation)\b",
+            re.IGNORECASE,
+        ),
+        "Risk / Concern",
+        8,
+    ),
+    (
+        re.compile(
+            r"\b(?:imports\s+exports|power\s+taxation|taxation|commerce|"
+            r"liberty\s+security|checks?\s+balances?|choice|tradeoff)\b",
+            re.IGNORECASE,
+        ),
+        "Decision / Tradeoff",
+        8,
+    ),
     (
         re.compile(
             r"\b(?:mending\s+apparatus|power\s+station|communication-system|central\s+power|infrastructure)\b",
@@ -3025,6 +3106,40 @@ PATTERN_BASED_FAMILY_RULES = [
 ]
 
 FORCED_SIGNAL_FAMILY_RULES = [
+    (
+        re.compile(
+            r"\b(?:federal\s+government|national\s+government|state\s+governments?|"
+            r"house\s+representatives|trial\s+jury|state\s+legislatures?|"
+            r"executive\s+department|legislative\s+body|supreme\s+court|"
+            r"proposed\s+constitution|constitution|union|confederacy|republic)\b",
+            re.IGNORECASE,
+        ),
+        "Institutional Structure / Social Design",
+    ),
+    (
+        re.compile(
+            r"\b(?:chief\s+magistrate|judicial\s+power|executive\s+power|"
+            r"legislative\s+authority|constitutional\s+authority|sovereignty)\b",
+            re.IGNORECASE,
+        ),
+        "Authority / Legitimacy",
+    ),
+    (
+        re.compile(
+            r"\b(?:standing\s+armies|faction|tyranny|invasion|war|security|"
+            r"public\s+danger|internal\s+violence|usurpation)\b",
+            re.IGNORECASE,
+        ),
+        "Risk / Concern",
+    ),
+    (
+        re.compile(
+            r"\b(?:imports\s+exports|power\s+taxation|taxation|commerce|"
+            r"liberty\s+security|checks?\s+balances?|tradeoff)\b",
+            re.IGNORECASE,
+        ),
+        "Decision / Tradeoff",
+    ),
     (
         re.compile(
             r"\b(?:mending\s+apparatus|power\s+station|communication-system|central\s+power)\b",
