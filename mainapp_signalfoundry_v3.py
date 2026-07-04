@@ -4546,6 +4546,7 @@ def render_calibration_export_panel(
     text_stats: Dict[str, Any],
     proc_conf: ProcessingConfig,
     expected_terms_raw: str = "",
+    key_prefix: str = "calibration_export",
 ):
     st.divider()
     with st.expander("🧪 Admin Calibration Export", expanded=False):
@@ -4558,6 +4559,7 @@ def render_calibration_export_panel(
             ["Safe calibration export", "Full diagnostic export"],
             index=0,
             horizontal=False,
+            key=f"{key_prefix}_mode",
             help=(
                 "Safe mode omits representative evidence from insight cards. "
                 "Full mode includes evidence snippets and should be treated as sensitive."
@@ -4566,6 +4568,7 @@ def render_calibration_export_panel(
         run_label = st.text_input(
             "Optional run label",
             placeholder="Example: machine-stops-clean-txt-v4-default-settings",
+            key=f"{key_prefix}_run_label",
             help="Adds a human-readable label to the export summary.",
         )
         if export_mode == "Full diagnostic export":
@@ -4592,6 +4595,7 @@ def render_calibration_export_panel(
             zip_bytes,
             f"signal_foundry_calibration{label_part}_{timestamp}.zip",
             "application/zip",
+            key=f"{key_prefix}_download",
             help="Downloads a ZIP containing CSV, JSON, and Markdown files for calibration review.",
         )
 
@@ -5318,6 +5322,16 @@ with tab_work:
         )
         render_executive_signal_dashboard(scanner, combined_counts, text_stats, insight_df)
         render_auto_insights(scanner, proc_conf)
+        if st.session_state.get("authenticated"):
+            render_calibration_export_panel(
+                scanner=scanner,
+                combined_counts=combined_counts,
+                insight_df=insight_df,
+                text_stats=text_stats,
+                proc_conf=proc_conf,
+                expected_terms_raw=st.session_state.get("insight_expected_terms", ""),
+                key_prefix="calibration_export_quick_access",
+            )
         # main tabs
         analysis_tab_labels = [
             "💡 Insight Engine",
@@ -5464,6 +5478,7 @@ with tab_work:
                         text_stats=text_stats,
                         proc_conf=proc_conf,
                         expected_terms_raw=insight_expected_terms,
+                        key_prefix="calibration_export_tab",
                     )
 
         with tab_main:
