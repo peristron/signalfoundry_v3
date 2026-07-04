@@ -5105,7 +5105,7 @@ with tab_work:
         render_executive_signal_dashboard(scanner, combined_counts, text_stats, insight_df)
         render_auto_insights(scanner, proc_conf)
         # main tabs
-        tab_insight, tab_main, tab_theme, tab_trend, tab_ent, tab_key, tab_mat = st.tabs([
+        analysis_tab_labels = [
             "💡 Insight Engine",
             "☁️ Word Cloud & Stats",
             "🧭 Themes",
@@ -5113,7 +5113,13 @@ with tab_work:
             "👥 Entities",
             "🔑 Keyphrases",
             "🏆 Maturity",
-        ])
+        ]
+        if st.session_state.get("authenticated"):
+            analysis_tab_labels.append("🧪 Calibration Export")
+
+        analysis_tabs = st.tabs(analysis_tab_labels)
+        tab_insight, tab_main, tab_theme, tab_trend, tab_ent, tab_key, tab_mat = analysis_tabs[:7]
+        tab_calibration = analysis_tabs[7] if st.session_state.get("authenticated") else None
         
         with tab_insight:
             st.subheader("💡 Insight Engine")
@@ -5211,7 +5217,19 @@ with tab_work:
                     "insight_cards.csv",
                     "text/csv",
                 )
-                if st.session_state.get("authenticated"):
+
+        if tab_calibration is not None:
+            with tab_calibration:
+                st.subheader("🧪 Calibration Export")
+                st.caption(
+                    "Admin-only export for comparing repeated test runs. "
+                    "Use this to review calibration quality without relying on screenshots."
+                )
+                if insight_df.empty:
+                    st.info(
+                        "Not enough insight-card data yet. Scan a resource first, then return here."
+                    )
+                else:
                     render_calibration_export_panel(
                         scanner=scanner,
                         combined_counts=combined_counts,
