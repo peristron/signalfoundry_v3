@@ -2917,6 +2917,7 @@ SIGNAL_TYPE_PRIORITY = {
     "Isolation / Disconnection": 1.1,
     "Embodiment / Lived Experience": 1.0,
     "Aspiration / Ideology": 0.95,
+    "Contradiction / Tension": 0.75,
     "Motif / Image Pattern": 0.65,
     "Source / Boilerplate": 0.15,
     "Low-Specificity Signal": 0.25,
@@ -2951,6 +2952,9 @@ BOILERPLATE_SIGNAL_TERMS = {
     "download", "ebook", "archive", "source", "scan", "scanned", "ocr",
     "proofread", "proofreading", "editor", "editors", "errata", "title",
     "heading", "header", "footer", "rights", "reserved",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "sunday", "january", "february", "march", "april", "june", "july",
+    "august", "september", "october", "november", "december",
 }
 
 BOILERPLATE_SIGNAL_PHRASES = {
@@ -2963,6 +2967,7 @@ BOILERPLATE_SIGNAL_PHRASES = {
     "york packet",
     "mcleans edition",
     "state york",
+    "tuesday february",
 }
 
 BOILERPLATE_SIGNAL_PATTERNS = [
@@ -2971,7 +2976,9 @@ BOILERPLATE_SIGNAL_PATTERNS = [
         r"publisher|published|publication|printer|printing|packet|journal|"
         r"newspaper|magazine|advertiser|gazette|mcleans?|appendix|preface|foreword|contents|index|"
         r"chapter|section|volume|page|continued|ebook|archive|ocr|proofread|"
-        r"proofreading|errata|header|footer|rights\s+reserved)\b",
+        r"proofreading|errata|header|footer|rights\s+reserved|"
+        r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+        r"january|february|march|april|june|july|august|september|october|november|december)\b",
         re.IGNORECASE,
     ),
 ]
@@ -2989,6 +2996,12 @@ FRAGMENT_END_TERMS = {
 GENERIC_BIGRAM_END_TERMS = {
     "said", "cried", "asked", "told", "made", "went", "came", "looked",
     "seemed", "became", "found",
+}
+
+ABSTRACT_FRAGMENT_TERMS = {
+    "constitute", "constitutes", "constituted", "ingredients", "ingredient",
+    "circumstances", "considerations", "objects", "object", "things",
+    "means", "ends", "parts", "particulars", "principles",
 }
 
 PATTERN_BASED_FAMILY_RULES = [
@@ -3436,6 +3449,12 @@ def signal_phrase_quality(signal: str, signal_type: str, support: int, distincti
     if len(parts) == 2 and parts[-1] in GENERIC_BIGRAM_END_TERMS:
         score -= 20
         reasons.append("generic verb pairing")
+    if len(parts) == 2 and all(part in ABSTRACT_FRAGMENT_TERMS for part in parts):
+        score -= 30
+        reasons.append("abstract phrase fragment")
+    elif any(part in ABSTRACT_FRAGMENT_TERMS for part in parts) and signal_type == "Contradiction / Tension":
+        score -= 18
+        reasons.append("abstract tension wording")
     if all(part in CONTEXT_REFERENCE_TERMS for part in parts):
         score -= 25
         reasons.append("mostly context/reference language")
@@ -3474,6 +3493,8 @@ def classify_signal_role(
         return "Context / Reference", "Mostly location, reference, or named-context language."
     if len(parts) == 2 and parts[-1] in GENERIC_BIGRAM_END_TERMS:
         return "Low-Specificity", "The phrase is mostly a generic verb pairing rather than a stable concept."
+    if len(parts) == 2 and all(part in ABSTRACT_FRAGMENT_TERMS for part in parts):
+        return "Low-Specificity", "The phrase is an abstract fragment rather than a clear substantive signal."
 
     if phrase_quality < 50:
         return "Supporting Signal", "Potentially meaningful, but the phrase is not clean enough to lead the analysis."
@@ -3780,6 +3801,13 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
         if "Signal Role" in usable.columns
         else 1.0
     )
+    tension_shape_weight = (
+        usable["Signal Type"]
+        .map({
+            "Contradiction / Tension": 0.55,
+        })
+        .fillna(1.0)
+    )
     lift_component = usable["Interpretive Lift"].fillna(50).astype(float) / 10 if "Interpretive Lift" in usable.columns else 0
     usable["Shape Weight"] = (
         (
@@ -3790,6 +3818,7 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
         )
         * family_priority
         * role_shape_weight
+        * tension_shape_weight
     )
 
     family_rows = (
