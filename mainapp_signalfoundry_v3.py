@@ -2884,6 +2884,7 @@ SIGNAL_TYPE_PRIORITY = {
     "Embodiment / Lived Experience": 1.0,
     "Aspiration / Ideology": 0.95,
     "Motif / Image Pattern": 0.65,
+    "Source / Boilerplate": 0.15,
     "Low-Specificity Signal": 0.25,
     "Absence / Weak Signal": 0.2,
 }
@@ -2903,6 +2904,35 @@ CONTEXT_REFERENCE_TERMS = {
     "city", "country", "region", "place", "location", "french", "revolution",
     "mongolian", "mongols", "australian", "brazil", "courland", "wessex",
 }
+
+BOILERPLATE_SIGNAL_TERMS = {
+    "edition", "editions", "copyright", "license", "licence", "gutenberg",
+    "transcriber", "publisher", "published", "publication", "printer",
+    "printing", "press", "packet", "journal", "newspaper", "magazine",
+    "appendix", "preface", "foreword", "introduction", "contents", "index",
+    "chapter", "section", "volume", "vol", "page", "pages", "continued",
+    "download", "ebook", "archive", "source", "scan", "scanned", "ocr",
+    "proofread", "proofreading", "editor", "editors", "errata", "title",
+    "heading", "header", "footer", "rights", "reserved",
+}
+
+BOILERPLATE_SIGNAL_PHRASES = {
+    "subject continued",
+    "all rights",
+    "rights reserved",
+    "project gutenberg",
+}
+
+BOILERPLATE_SIGNAL_PATTERNS = [
+    re.compile(
+        r"\b(?:edition|editions|copyright|license|licence|gutenberg|transcriber|"
+        r"publisher|published|publication|printer|printing|packet|journal|"
+        r"newspaper|magazine|appendix|preface|foreword|contents|index|"
+        r"chapter|section|volume|page|continued|ebook|archive|ocr|proofread|"
+        r"proofreading|errata|header|footer|rights\s+reserved)\b",
+        re.IGNORECASE,
+    ),
+]
 
 FRAGMENT_START_TERMS = {
     "pressed", "made", "awoke", "said", "called", "went", "came", "took",
@@ -3083,6 +3113,23 @@ def is_low_information_signal(signal: str, support: int, distinctiveness: float)
         part in LOW_INFORMATION_SIGNAL_TERMS for part in parts
     )
 
+def is_boilerplate_signal(signal: str, related_terms: str = "", evidence_text: str = "") -> bool:
+    normalized = " ".join(str(signal).lower().split())
+    if not normalized:
+        return False
+    if normalized in BOILERPLATE_SIGNAL_PHRASES:
+        return True
+    parts = normalized.split()
+    if any(part in BOILERPLATE_SIGNAL_TERMS for part in parts):
+        return True
+    if any(pattern.search(normalized) for pattern in BOILERPLATE_SIGNAL_PATTERNS):
+        return True
+
+    combined_context = f"{related_terms} {evidence_text}".lower()
+    if "project gutenberg" in combined_context and len(parts) <= 3:
+        return True
+    return False
+
 
 def calibrate_signal_card(
     signal: str,
@@ -3102,6 +3149,17 @@ def calibrate_signal_card(
                 "excerpt clearly shows a substantive pattern."
             ),
             f"Is '{signal}' carrying real meaning here, or is it mostly connective language?",
+        )
+
+    if is_boilerplate_signal(signal, related_terms, evidence_text):
+        return (
+            "Source / Boilerplate",
+            (
+                f"'{signal}' looks like source, edition, heading, or publication metadata "
+                "rather than a substantive theme. Keep it visible for audit purposes, but "
+                "do not treat it as the heart of the text."
+            ),
+            "Is this phrase part of the document's content, or is it repeated source/formatting language?",
         )
 
     for pattern, forced_family in FORCED_SIGNAL_FAMILY_RULES:
@@ -3251,6 +3309,9 @@ def signal_phrase_quality(signal: str, signal_type: str, support: int, distincti
         score += 8
         reasons.append("semantic category match")
 
+    if signal_type == "Source / Boilerplate" or is_boilerplate_signal(signal):
+        score -= 45
+        reasons.append("source or boilerplate language")
     if is_low_information_signal(normalized, support, distinctiveness):
         score -= 35
         reasons.append("generic wording")
@@ -3282,6 +3343,9 @@ def classify_signal_role(
 
     if signal_type == "Low-Specificity Signal" or is_low_information_signal(normalized, support, distinctiveness):
         return "Low-Specificity", "Generic or connective wording; useful mainly as a weak lead."
+
+    if signal_type == "Source / Boilerplate" or is_boilerplate_signal(signal):
+        return "Context / Reference", "Likely source, edition, heading, footer, or publication metadata."
 
     if signal_type == "Absence / Weak Signal":
         return "Supporting Signal", "Expected concept check rather than an organically discovered core signal."
@@ -3571,7 +3635,11 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
         }
 
     usable = insight_df[
-        ~insight_df["Signal Type"].isin(["Absence / Weak Signal", "Low-Specificity Signal"])
+        ~insight_df["Signal Type"].isin([
+            "Absence / Weak Signal",
+            "Low-Specificity Signal",
+            "Source / Boilerplate",
+        ])
     ].copy()
     if "Signal Role" in usable.columns:
         role_filtered = usable[
