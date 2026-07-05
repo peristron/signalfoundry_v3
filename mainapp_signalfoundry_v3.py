@@ -4022,6 +4022,90 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
         "key_insights": key_insights,
     }
 
+SIGNAL_DIRECTION_LABELS = {
+    "Infrastructure / System Dependence": "System-dependence heavy",
+    "Risk / Failure Mode": "Failure-mode heavy",
+    "Risk / Concern": "Risk-centered",
+    "Institutional Structure / Social Design": "Institutional-design heavy",
+    "Authority / Legitimacy": "Authority/legitimacy heavy",
+    "Decision / Tradeoff": "Tradeoff/decision heavy",
+    "Disease / Hazard": "Hazard/disease heavy",
+    "Evidence / Experiment": "Evidence/testing heavy",
+    "Intervention / Control Method": "Intervention/control heavy",
+    "Public Health / Institutional Response": "Public-health response heavy",
+    "Standardization / Loss of Difference": "Standardization heavy",
+    "Embodiment / Lived Experience": "Lived-experience heavy",
+    "Aspiration / Ideology": "Ideology/progress heavy",
+    "Motif / Image Pattern": "Motif/image heavy",
+    "Isolation / Disconnection": "Isolation/disconnection heavy",
+    "Contradiction / Tension": "Tension-heavy",
+}
+
+def build_signal_compass_df(insight_df: pd.DataFrame) -> pd.DataFrame:
+    shape = build_resource_shape(insight_df)
+    families = shape.get("families", [])
+    if not families:
+        return pd.DataFrame(columns=["Signal Family", "Direction", "Weight", "Share", "Example Signal"])
+
+    df = pd.DataFrame(families).rename(columns={
+        "Signal Type": "Signal Family",
+        "TopSignal": "Example Signal",
+    })
+    df["Direction"] = df["Signal Family"].map(SIGNAL_DIRECTION_LABELS).fillna(
+        df["Signal Family"].astype(str) + " heavy"
+    )
+    total_weight = max(float(df["Weight"].sum()), 1.0)
+    df["Share"] = (df["Weight"].astype(float) / total_weight).round(3)
+    return df[["Signal Family", "Direction", "Weight", "Share", "Cards", "Example Signal"]]
+
+def render_signal_compass_panel(insight_df: pd.DataFrame):
+    compass_df = build_signal_compass_df(insight_df)
+
+    st.subheader("🧭 Signal Compass")
+    st.caption(
+        "A directional view of the resource: which analytical forces are pulling the text most strongly."
+    )
+
+    if compass_df.empty:
+        st.info("Not enough signal yet to build the compass.")
+        return
+
+    top_rows = compass_df.head(3).reset_index(drop=True)
+    badge_cols = st.columns(len(top_rows))
+    for idx, row in top_rows.iterrows():
+        with badge_cols[idx]:
+            st.metric(
+                row["Direction"],
+                f"{int(row['Share'] * 100)}%",
+                help=f"Example signal: {row['Example Signal']}",
+            )
+            st.caption(f"Example: {row['Example Signal']}")
+
+    if alt is not None:
+        chart_df = compass_df.copy()
+        chart = (
+            alt.Chart(chart_df)
+            .mark_bar(cornerRadius=4)
+            .encode(
+                x=alt.X("Share:Q", title="Directional weight", axis=alt.Axis(format="%")),
+                y=alt.Y("Direction:N", sort="-x", title=None),
+                tooltip=["Signal Family", "Direction", "Cards", "Example Signal", alt.Tooltip("Share:Q", format=".0%")],
+            )
+            .properties(height=max(150, len(chart_df) * 34))
+        )
+        st.altair_chart(chart, use_container_width=True)
+    else:
+        display_df = compass_df.copy()
+        display_df["Share"] = (display_df["Share"] * 100).round(1).astype(str) + "%"
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    top_direction = str(compass_df.iloc[0]["Direction"])
+    secondary = ", ".join(compass_df["Direction"].head(3).tolist()[1:])
+    if secondary:
+        st.info(f"Directional read: **{top_direction}**, with secondary pull from {secondary}.")
+    else:
+        st.info(f"Directional read: **{top_direction}**.")
+
 
 def render_resource_shape_panel(insight_df: pd.DataFrame):
     shape = build_resource_shape(insight_df)
@@ -4216,31 +4300,34 @@ def render_workflow_guide():
         1. **Executive Signal Dashboard**  
            Start here. It summarizes corpus size, evidence coverage, strongest signals, signal-type mix, and suggested next steps.
 
-        2. **Resource Shape**  
-           Read this first inside the Insight Engine. It groups the strongest signals into a short synthesis of what the uploaded resource appears to be about.
+        2. **Signal Compass**  
+           Use this first inside the Insight Engine. It shows the main directional pull of the text, such as risk-centered, institution-heavy, evidence-heavy, or system-dependence-heavy.
 
-        3. **Supporting Insight Cards**  
+        3. **Resource Shape**  
+           Read this next inside the Insight Engine. It groups the strongest signals into a short synthesis of what the uploaded resource appears to be about.
+
+        4. **Supporting Insight Cards**  
            Use these to inspect the evidence behind the synthesis. Cards connect statistical signals to interpretation, confidence, representative excerpts, and follow-up questions.
 
-        4. **Word Cloud & Stats**  
+        5. **Word Cloud & Stats**  
            Confirm the scan looks sane. If boilerplate or junk dominates, adjust stopwords and rescan.
 
-        5. **Themes**  
+        6. **Themes**  
            Inspect theme evidence cards, frequency-vs-distinctiveness, missing expected signals, category contrasts, and temporal drift.
 
-        6. **Keyphrases**  
+        7. **Keyphrases**  
            Use TF-IDF to find words that are unusually specific to this corpus.
 
-        7. **Entities**  
+        8. **Entities**  
            Check which people, organizations, systems, programs, places, or named concepts keep appearing.
 
-        8. **Network Graph**  
+        9. **Network Graph**  
            Explore relationships between terms after the core signals make sense.
 
-        9. **Maturity**  
+        10. **Maturity**  
            Use this when the source material fits one of the maturity lenses.
 
-        10. **AI Analyst**  
+        11. **AI Analyst**  
            Use last. It works best when the visible dashboard and evidence cards already look reasonable.
 
         ---
@@ -4256,7 +4343,7 @@ def render_workflow_guide():
         3. Keep **Clear previous data** enabled unless intentionally combining scans.
         4. Leave default cleaning settings on for the first pass.
         5. Click the scan button.
-        6. Start with the **Executive Signal Dashboard**, then read **Resource Shape** in the Insight Engine.
+        6. Start with the **Executive Signal Dashboard**, then read **Signal Compass** and **Resource Shape** in the Insight Engine.
 
         #### Path B - Structured Files
 
@@ -4296,10 +4383,11 @@ def render_workflow_guide():
 
         ### 💡 How to Read the Insight Engine
 
-        The Insight Engine now has two layers:
+        The Insight Engine now has three layers:
 
-        1. **Resource Shape** gives a short synthesis of the uploaded material: the main signal families and the strongest key insights.
-        2. **Supporting Insight Cards** show the evidence behind that synthesis.
+        1. **Signal Compass** gives a quick directional read of the uploaded material.
+        2. **Resource Shape** gives a short synthesis of the main signal families and strongest key insights.
+        3. **Supporting Insight Cards** show the evidence behind that synthesis.
 
         Each supporting card includes:
 
@@ -4322,6 +4410,10 @@ def render_workflow_guide():
         - Decision / Tradeoff
         - Contradiction / Tension
         - Infrastructure / System Dependence
+        - Disease / Hazard
+        - Evidence / Experiment
+        - Intervention / Control Method
+        - Public Health / Institutional Response
         - Embodiment / Lived Experience
         - Institutional Structure / Social Design
         - Standardization / Loss of Difference
@@ -5950,6 +6042,8 @@ with tab_work:
                     "Not enough evidence yet to build insight cards. Scan more text or reduce filtering."
                 )
             else:
+                render_signal_compass_panel(insight_df)
+                st.divider()
                 render_resource_shape_panel(insight_df)
                 st.divider()
                 st.subheader("🔎 Supporting Insight Cards")
