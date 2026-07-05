@@ -4146,6 +4146,116 @@ SIGNAL_DIRECTION_LABELS = {
     "Contradiction / Tension": "Tension-heavy",
 }
 
+ANALYSIS_HELP_TEXT = {
+    "Signal Role": (
+        "How this item is being used in the analysis. Core Insights are strongest; "
+        "Supporting Signals, Motifs, Context, and Low-Specificity items help explain what was promoted or demoted."
+    ),
+    "Signal Type": (
+        "The app's best-fit analytical category for this signal, such as risk, infrastructure, "
+        "institutional structure, evidence, disease, or tradeoff."
+    ),
+    "Signal Family": (
+        "A broader analytical category used to summarize the overall shape of the resource."
+    ),
+    "Direction": (
+        "A plain-language label for the main analytical pull of the text, such as risk-centered or evidence-heavy."
+    ),
+    "Evidence Strength": (
+        "How often this signal appears or is supported in the processed text. Higher means more repeated evidence, not necessarily more importance."
+    ),
+    "Distinctiveness": (
+        "How strongly this phrase or signal stands out compared with ordinary word-pairing patterns. Higher means more unusually associated, not just frequent."
+    ),
+    "Confidence": (
+        "A rough reliability label based on support, available evidence, and distinctiveness. Treat it as a guide, not proof."
+    ),
+    "Interpretive Lift": (
+        "A directional ranking score for how useful this signal is likely to be. It combines evidence strength, distinctiveness, signal role, semantic fit, and phrase quality."
+    ),
+    "Cards": (
+        "How many insight cards contributed to this signal family or role."
+    ),
+    "Example Signal": (
+        "A representative signal that helped place this family or direction in the summary."
+    ),
+    "Share": (
+        "This direction's approximate share of the top Resource Shape weight."
+    ),
+    "Rows": (
+        "How many source units were processed, such as lines, spreadsheet rows, transcript segments, or document chunks."
+    ),
+    "Tokens": (
+        "The total number of cleaned words available for analysis after filtering."
+    ),
+    "Insight Cards": (
+        "The number of ranked evidence cards the app produced from the strongest available signals."
+    ),
+    "Evidence Snippets": (
+        "Short retained excerpts used to connect insight cards back to source evidence."
+    ),
+    "Groups / Dates": (
+        "How many category groups and time points were detected for comparison or trend views."
+    ),
+    "Total Tokens": (
+        "The total count of all words processed after cleaning, such as removing stopwords and numbers."
+    ),
+    "Unique Vocab": (
+        "The number of distinct words found. Higher values often mean broader vocabulary or more varied subject matter."
+    ),
+    "Docs/Rows": (
+        "The number of separate processing units, such as rows, paragraphs, pages, or transcript lines."
+    ),
+    "Lexical Diversity": (
+        "The ratio of unique words to total words. Higher means more varied language; lower means more repetition."
+    ),
+    "Signal Types": (
+        "The number of analytical categories available for classifying signals."
+    ),
+    "Evidence Cap": (
+        "The maximum number of representative snippets retained for evidence review."
+    ),
+    "Frequency": (
+        "How often this term appears in the processed text."
+    ),
+    "Evidence Score": (
+        "A combined directional score based on frequency and distinctiveness."
+    ),
+    "Quadrant": (
+        "A simple label showing whether a term is common backdrop, niche signal, core signal, or low evidence."
+    ),
+    "Maturity Score": (
+        "A directional score based on maturity vocabulary found in the text. It is a guide, not a formal assessment."
+    ),
+    "Signal Density": (
+        "How many maturity-related vocabulary signals were found."
+    ),
+    "Composite Maturity": (
+        "A directional maturity score across assessed domains."
+    ),
+    "Domains Assessed": (
+        "How many maturity domains had enough matching evidence to be scored."
+    ),
+    "Total Signals": (
+        "The total number of maturity-related signals found across assessed domains."
+    ),
+    "Foundational": (
+        "Share of domain evidence that maps to foundational maturity language."
+    ),
+    "Advanced": (
+        "Share of domain evidence that maps to more advanced maturity language."
+    ),
+    "Leading Edge": (
+        "Share of domain evidence that maps to leading-edge maturity language."
+    ),
+    "Positive Words Observed": (
+        "How many processed terms matched the app's positive sentiment vocabulary."
+    ),
+    "Negative Words Observed": (
+        "How many processed terms matched the app's negative sentiment vocabulary."
+    ),
+}
+
 def build_signal_compass_df(insight_df: pd.DataFrame) -> pd.DataFrame:
     shape = build_resource_shape(insight_df)
     families = shape.get("families", [])
@@ -4182,7 +4292,11 @@ def render_signal_compass_panel(insight_df: pd.DataFrame):
             st.metric(
                 row["Direction"],
                 f"{int(row['Share'] * 100)}%",
-                help=f"Example signal: {row['Example Signal']}",
+                help=(
+                    f"{ANALYSIS_HELP_TEXT['Direction']} "
+                    f"{ANALYSIS_HELP_TEXT['Share']} "
+                    f"Example signal: {row['Example Signal']}"
+                ),
             )
             st.caption(f"Example: {row['Example Signal']}")
 
@@ -4194,7 +4308,13 @@ def render_signal_compass_panel(insight_df: pd.DataFrame):
             .encode(
                 x=alt.X("Share:Q", title="Directional weight", axis=alt.Axis(format="%")),
                 y=alt.Y("Direction:N", sort="-x", title=None),
-                tooltip=["Signal Family", "Direction", "Cards", "Example Signal", alt.Tooltip("Share:Q", format=".0%")],
+                tooltip=[
+                    alt.Tooltip("Signal Family:N", title="Signal Family"),
+                    alt.Tooltip("Direction:N", title="Direction"),
+                    alt.Tooltip("Cards:Q", title="Cards"),
+                    alt.Tooltip("Example Signal:N", title="Example Signal"),
+                    alt.Tooltip("Share:Q", title="Share", format=".0%"),
+                ],
             )
             .properties(height=max(150, len(chart_df) * 34))
         )
@@ -4202,7 +4322,33 @@ def render_signal_compass_panel(insight_df: pd.DataFrame):
     else:
         display_df = compass_df.copy()
         display_df["Share"] = (display_df["Share"] * 100).round(1).astype(str) + "%"
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Signal Family": st.column_config.TextColumn(
+                    "Signal Family",
+                    help=ANALYSIS_HELP_TEXT["Signal Family"],
+                ),
+                "Direction": st.column_config.TextColumn(
+                    "Direction",
+                    help=ANALYSIS_HELP_TEXT["Direction"],
+                ),
+                "Cards": st.column_config.NumberColumn(
+                    "Cards",
+                    help=ANALYSIS_HELP_TEXT["Cards"],
+                ),
+                "Example Signal": st.column_config.TextColumn(
+                    "Example Signal",
+                    help=ANALYSIS_HELP_TEXT["Example Signal"],
+                ),
+                "Share": st.column_config.TextColumn(
+                    "Share",
+                    help=ANALYSIS_HELP_TEXT["Share"],
+                ),
+            },
+        )
 
     top_direction = str(compass_df.iloc[0]["Direction"])
     secondary = ", ".join(compass_df["Direction"].head(3).tolist()[1:])
@@ -4233,6 +4379,20 @@ def render_resource_shape_panel(insight_df: pd.DataFrame):
                 family_df[["Signal Family", "Cards", "Example Signal"]],
                 use_container_width=True,
                 hide_index=True,
+                column_config={
+                    "Signal Family": st.column_config.TextColumn(
+                        "Signal Family",
+                        help=ANALYSIS_HELP_TEXT["Signal Family"],
+                    ),
+                    "Cards": st.column_config.NumberColumn(
+                        "Cards",
+                        help=ANALYSIS_HELP_TEXT["Cards"],
+                    ),
+                    "Example Signal": st.column_config.TextColumn(
+                        "Example Signal",
+                        help=ANALYSIS_HELP_TEXT["Example Signal"],
+                    ),
+                },
             )
 
         if shape["key_insights"]:
@@ -4243,18 +4403,16 @@ def render_resource_shape_panel(insight_df: pd.DataFrame):
                     expanded=(idx <= 3),
                 ):
                     c_role, c_lift = st.columns(2)
-                    c_role.metric("Signal Role", item.get("Signal Role", "Supporting Signal"))
-                    #>>>>>>>>>>>>>>>>
+                    c_role.metric(
+                        "Signal Role",
+                        item.get("Signal Role", "Supporting Signal"),
+                        help=ANALYSIS_HELP_TEXT["Signal Role"],
+                    )
                     c_lift.metric(
                         "Interpretive Lift",
                         f"{item.get('Interpretive Lift', 0)}/100",
-                        help=(
-                            "A directional ranking score for how useful this signal is likely to be. "
-                            "It combines evidence strength, distinctiveness, signal role, semantic fit, "
-                            "and phrase quality. Higher scores are stronger leads, not final conclusions."
-                        ),
+                        help=ANALYSIS_HELP_TEXT["Interpretive Lift"],
                     )
-#<<<<<<<<<<<<<<<<
                     if item.get("Ranking Rationale"):
                         st.caption(item["Ranking Rationale"])
                     st.write(item["Interpretation"])
@@ -4314,11 +4472,31 @@ def render_executive_signal_dashboard(
         high_conf_count = int(insight_df["Confidence"].isin(["High", "Medium"]).sum())
 
     metric_cols = st.columns(5)
-    metric_cols[0].metric("Rows", f"{text_stats['Total Rows']:,}")
-    metric_cols[1].metric("Tokens", f"{text_stats['Total Tokens']:,}")
-    metric_cols[2].metric("Insight Cards", f"{len(insight_df):,}")
-    metric_cols[3].metric("Evidence Snippets", f"{len(scanner.evidence_docs):,}")
-    metric_cols[4].metric("Groups / Dates", f"{len(scanner.category_counts)} / {len(scanner.temporal_counts)}")
+    metric_cols[0].metric(
+        "Rows",
+        f"{text_stats['Total Rows']:,}",
+        help=ANALYSIS_HELP_TEXT["Rows"],
+    )
+    metric_cols[1].metric(
+        "Tokens",
+        f"{text_stats['Total Tokens']:,}",
+        help=ANALYSIS_HELP_TEXT["Tokens"],
+    )
+    metric_cols[2].metric(
+        "Insight Cards",
+        f"{len(insight_df):,}",
+        help=ANALYSIS_HELP_TEXT["Insight Cards"],
+    )
+    metric_cols[3].metric(
+        "Evidence Snippets",
+        f"{len(scanner.evidence_docs):,}",
+        help=ANALYSIS_HELP_TEXT["Evidence Snippets"],
+    )
+    metric_cols[4].metric(
+        "Groups / Dates",
+        f"{len(scanner.category_counts)} / {len(scanner.temporal_counts)}",
+        help=ANALYSIS_HELP_TEXT["Groups / Dates"],
+    )
 
     if scanner.evidence_limit_reached:
         st.warning(
@@ -4355,11 +4533,28 @@ def render_executive_signal_dashboard(
                 chart = alt.Chart(mix_df).mark_bar().encode(
                     x=alt.X("Cards:Q", title="Cards"),
                     y=alt.Y("Signal Type:N", sort="-x", title=None),
-                    tooltip=["Signal Type", "Cards"],
+                    tooltip=[
+                        alt.Tooltip("Signal Type:N", title="Signal Type"),
+                        alt.Tooltip("Cards:Q", title="Cards"),
+                    ],
                 ).properties(height=max(160, 28 * len(mix_df)))
                 st.altair_chart(chart, use_container_width=True)
             else:
-                st.dataframe(mix_df, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    mix_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Signal Type": st.column_config.TextColumn(
+                            "Signal Type",
+                            help=ANALYSIS_HELP_TEXT["Signal Type"],
+                        ),
+                        "Cards": st.column_config.NumberColumn(
+                            "Cards",
+                            help=ANALYSIS_HELP_TEXT["Cards"],
+                        ),
+                    },
+                )
 
     with right_col:
         st.markdown("#### What To Do Next")
@@ -4389,7 +4584,6 @@ def render_executive_signal_dashboard(
             st.json(scanner.dashboard_summary, expanded=False)
 
 
-#>>>>>>>>>>>>>>>>
 def render_workflow_guide():
     with st.expander("📘 Comprehensive App Guide: How to use this Tool", expanded=False):
         st.markdown("""
@@ -4693,7 +4887,6 @@ def render_workflow_guide():
 
         Bottom line: start with the dashboard, inspect evidence, then drill into the deeper tools.
         """)
-#<<<<<<<<<<<<<<<<
 
 def render_lit_case_study():
     # We use Unicode "Math Sans" characters to simulate bold/italics in the title
@@ -5412,7 +5605,6 @@ def call_llm_and_track_cost(system_prompt: str, user_prompt: str, config: dict):
 # 🚀 main app ui
 # ==========================================
 
-#>>>>>>>>>>>>>>>>
 st.set_page_config(page_title="Signal Foundry", layout="wide")
 st.toast("app loaded/updated successfully", icon="🚀") # cache buster
 st.title("🧠 Signal Foundry: Unstructured Data Analytics")
@@ -5431,13 +5623,11 @@ if not st.session_state["privacy_notice_dismissed"]:
         if st.button("I understand - dismiss this notice", key="dismiss_privacy_notice"):
             st.session_state["privacy_notice_dismissed"] = True
             st.rerun()
-#<<<<<<<<<<<<<<<<
 
 # Initialize NLP globally
 analyzer, lemmatizer = setup_nlp_resources()
 
 # --- SIDEBAR (Global Inputs) ---
-#>>>>>>>>>>>>>>>>
 with st.sidebar:
     with st.expander("🧭 Start Here", expanded=True):
         st.markdown(
@@ -5781,16 +5971,12 @@ with st.sidebar:
     )
 
 # --- TABS LAYOUT ---
-#>>>>>>>>>>>>>>>>
-#>>>>>>>>>>>>>>>>
 # --- TABS LAYOUT ---
-#>>>>>>>>>>>>>>>>
 st.markdown("### Start Here")
 st.caption(
     "Use Analyze Documents to scan files and review signals. "
     "Use Guide & Use Cases for workflow guidance, examples, and interpretation help."
 )
-#<<<<<<<<<<<<<<<<
 tab_work, tab_learn = st.tabs(["🚀 Analyze Documents", "📚 Guide & Use Cases"])
 
 # 1. THE LEARNING TAB (Guides, Examples)
@@ -5804,8 +5990,6 @@ with tab_learn:
 
 # 2. THE WORKSPACE TAB (Main Engine)
 with tab_work:
-#<<<<<<<<<<<<<<<<
-#<<<<<<<<<<<<<<<<
     st.subheader("🚀 Scan Workspace")
     st.caption(
         "Upload files, paste text or URLs, or load an offline sketch here. "
@@ -6155,17 +6339,17 @@ with tab_work:
             c_insight_1.metric(
                 "Evidence Snippets",
                 f"{len(scanner.evidence_docs):,}",
-                help="Bounded local excerpts captured during scanning so insight cards can point back to source evidence.",
+                help=ANALYSIS_HELP_TEXT["Evidence Snippets"],
             )
             c_insight_2.metric(
                 "Signal Types",
                 f"{len(SIGNAL_TAXONOMY):,}",
-                help="Heuristic categories such as pain, need, blocker, opportunity, risk, decision, and tension.",
+                help=ANALYSIS_HELP_TEXT["Signal Types"],
             )
             c_insight_3.metric(
                 "Evidence Cap",
                 f"{MAX_EVIDENCE_DOCS:,}",
-                help="The maximum number of local excerpts retained in memory or offline sketches.",
+                help=ANALYSIS_HELP_TEXT["Evidence Cap"],
             )
 
             if scanner.evidence_limit_reached:
@@ -6174,7 +6358,6 @@ with tab_work:
                     "but insight evidence is based on the retained sample."
                 )
 
-#>>>>>>>>>>>>>>>>
             insight_expected_terms = st.text_area(
                 "Hypothesis / Concept Check",
                 key="insight_expected_terms",
@@ -6184,7 +6367,6 @@ with tab_work:
                     "you want to check against the text. Leave blank for open-ended discovery."
                 ),
             )
-#<<<<<<<<<<<<<<<<
 
             insight_df = build_insight_cards(
                 scanner,
@@ -6236,20 +6418,26 @@ with tab_work:
                     )
                     with st.expander(title, expanded=(idx < 3)):
                         m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Evidence Strength", row["Evidence Strength"])
-                        m2.metric("Distinctiveness", row["Distinctiveness"])
-                        m3.metric("Confidence", row["Confidence"])
-                        #>>>>>>>>>>>>>>>>
+                        m1.metric(
+                            "Evidence Strength",
+                            row["Evidence Strength"],
+                            help=ANALYSIS_HELP_TEXT["Evidence Strength"],
+                        )
+                        m2.metric(
+                            "Distinctiveness",
+                            row["Distinctiveness"],
+                            help=ANALYSIS_HELP_TEXT["Distinctiveness"],
+                        )
+                        m3.metric(
+                            "Confidence",
+                            row["Confidence"],
+                            help=ANALYSIS_HELP_TEXT["Confidence"],
+                        )
                         m4.metric(
                             "Interpretive Lift",
                             f"{row.get('Interpretive Lift', 0)}/100",
-                            help=(
-                                "A directional ranking score for how useful this signal is likely to be. "
-                                "It combines evidence strength, distinctiveness, signal role, semantic fit, "
-                                "and phrase quality. Higher scores are stronger leads, not final conclusions."
-                            ),
+                            help=ANALYSIS_HELP_TEXT["Interpretive Lift"],
                         )
-#<<<<<<<<<<<<<<<<
                         if row.get("Ranking Rationale"):
                             st.caption(row["Ranking Rationale"])
                         st.markdown("**Interpretation**")
@@ -6309,25 +6497,25 @@ with tab_work:
             c1.metric(
                 "Total Tokens", 
                 f"{text_stats['Total Tokens']:,}",
-                help="The total count of all words processed after cleaning (removing stopwords, numbers, etc.). Represents the sheer volume of signal."
+                help=ANALYSIS_HELP_TEXT["Total Tokens"],
             )
             
             c2.metric(
                 "Unique Vocab", 
                 f"{text_stats['Unique Vocabulary']:,}",
-                help="The count of distinct, unique words found. A higher number indicates a broader range of topics or more complex language."
+                help=ANALYSIS_HELP_TEXT["Unique Vocab"],
             )
             
             c3.metric(
                 "Docs/Rows", 
                 f"{text_stats['Total Rows']:,}",
-                help="The number of individual processing units (e.g., rows in a CSV, paragraphs in a PDF, or lines in a transcript)."
+                help=ANALYSIS_HELP_TEXT["Docs/Rows"],
             )
             
             c4.metric(
                 "Lexical Diversity", 
                 f"{text_stats['Lexical Diversity']}",
-                help="The Ratio of Unique Words to Total Words (Unique / Total). \n\n• High (>0.5): Dense information, varied vocabulary (e.g., Poetry, Abstracts).\n• Low (<0.1): Highly repetitive, consistent language (e.g., Logs, Legal Boilerplate)."
+                help=ANALYSIS_HELP_TEXT["Lexical Diversity"],
             )
 
         with tab_theme:
@@ -6347,7 +6535,7 @@ with tab_work:
                         "Theme Evidence": st.column_config.TextColumn("Theme Evidence", help="A phrase or term that may point to an underlying theme."),
                         "Evidence Type": st.column_config.TextColumn("Evidence Type", help="Whether the signal comes from phrase association or corpus distinctiveness."),
                         "Support": st.column_config.NumberColumn("Support", help="How often this signal appears."),
-                        "Distinctiveness": st.column_config.NumberColumn("Distinctiveness", help="How strongly this signal stands out mathematically."),
+                        "Distinctiveness": st.column_config.NumberColumn("Distinctiveness", help=ANALYSIS_HELP_TEXT["Distinctiveness"]),
                         "Related Terms": st.column_config.TextColumn("Related Terms", help="Nearby terms that often travel with this signal."),
                         "Read As": st.column_config.TextColumn("Read As", help="Plain-language interpretation guidance."),
                     }
@@ -6439,15 +6627,25 @@ with tab_work:
                         top_signal_df[["Term", "Frequency", "Distinctiveness", "Evidence Score", "Quadrant"]],
                         use_container_width=True,
                         column_config={
-                            "Term": st.column_config.TextColumn("Term"),
-                            "Frequency": st.column_config.NumberColumn("Frequency"),
-                            "Distinctiveness": st.column_config.NumberColumn("Distinctiveness", format="%.2f"),
-                            "Evidence Score": st.column_config.NumberColumn("Evidence Score", format="%.1f"),
-                            "Quadrant": st.column_config.TextColumn("Quadrant"),
+                            "Term": st.column_config.TextColumn("Term", help="A word or phrase extracted from the processed text."),
+                            "Frequency": st.column_config.NumberColumn("Frequency", help=ANALYSIS_HELP_TEXT["Frequency"]),
+                            "Distinctiveness": st.column_config.NumberColumn("Distinctiveness", format="%.2f", help=ANALYSIS_HELP_TEXT["Distinctiveness"]),
+                            "Evidence Score": st.column_config.NumberColumn("Evidence Score", format="%.1f", help=ANALYSIS_HELP_TEXT["Evidence Score"]),
+                            "Quadrant": st.column_config.TextColumn("Quadrant", help=ANALYSIS_HELP_TEXT["Quadrant"]),
                         },
                     )
 
-                st.dataframe(quadrant_df.head(80), use_container_width=True)
+                st.dataframe(
+                    quadrant_df.head(80),
+                    use_container_width=True,
+                    column_config={
+                        "Term": st.column_config.TextColumn("Term", help="A word or phrase extracted from the processed text."),
+                        "Frequency": st.column_config.NumberColumn("Frequency", help=ANALYSIS_HELP_TEXT["Frequency"]),
+                        "Distinctiveness": st.column_config.NumberColumn("Distinctiveness", help=ANALYSIS_HELP_TEXT["Distinctiveness"]),
+                        "Evidence Score": st.column_config.NumberColumn("Evidence Score", help=ANALYSIS_HELP_TEXT["Evidence Score"]),
+                        "Quadrant": st.column_config.TextColumn("Quadrant", help=ANALYSIS_HELP_TEXT["Quadrant"]),
+                    },
+                )
                 st.download_button(
                     "📥 Download signal quadrant CSV",
                     dataframe_to_csv_bytes(quadrant_df),
@@ -6457,7 +6655,6 @@ with tab_work:
             else:
                 st.info("Not enough term data yet to build the signal quadrant.")
 
-#>>>>>>>>>>>>>>>>
             st.markdown("#### Hypothesis / Concept Check")
             expected_raw = st.text_area(
                 "Optional concepts, risks, themes, or required topics to check",
@@ -6468,7 +6665,6 @@ with tab_work:
                     "you want to check against the text. Leave blank for open-ended discovery."
                 ),
             )
-#<<<<<<<<<<<<<<<<
             expected_df = build_expected_terms_df(expected_raw, combined_counts, scanner.global_bigrams)
             if not expected_df.empty:
                 st.dataframe(expected_df, use_container_width=True)
@@ -6662,7 +6858,11 @@ with tab_work:
                         score = maturity_result['overall_score']
                         dom_stage = maturity_result['dominant_stage']
                         gauge_color = dom_stage['color']
-                        st.metric("Maturity Score (1.0 - 5.0)", f"{score} / 5.0")
+                        st.metric(
+                            "Maturity Score (1.0 - 5.0)",
+                            f"{score} / 5.0",
+                            help=ANALYSIS_HELP_TEXT["Maturity Score"],
+                        )
                         st.markdown(
                             f"#### Phase: <span style='color:{gauge_color}'>"
                             f"{dom_stage['name']}</span>",
@@ -6671,7 +6871,7 @@ with tab_work:
                         st.metric(
                             "Signal Density",
                             f"{maturity_result['total_signals_found']} words",
-                            help="Count of relevant vocabulary words found."
+                            help=ANALYSIS_HELP_TEXT["Signal Density"],
                         )
                     with m_col2:
                         fig_mat = assessor.render_radar_chart(maturity_result)
@@ -6710,18 +6910,21 @@ with tab_work:
                     with m_col1:
                         st.metric(
                             "Composite Maturity (1.0 - 3.0)",
-                            f"{maturity_result['overall_score']} / 3.0"
+                            f"{maturity_result['overall_score']} / 3.0",
+                            help=ANALYSIS_HELP_TEXT["Composite Maturity"],
                         )
                     with m_col2:
                         st.metric(
                             "Domains Assessed",
                             f"{maturity_result['domains_assessed']} / "
-                            f"{maturity_result['domains_total']}"
+                            f"{maturity_result['domains_total']}",
+                            help=ANALYSIS_HELP_TEXT["Domains Assessed"],
                         )
                     with m_col3:
                         st.metric(
                             "Total Signals",
-                            f"{maturity_result['total_signals_found']}"
+                            f"{maturity_result['total_signals_found']}",
+                            help=ANALYSIS_HELP_TEXT["Total Signals"],
                         )
                     # --- Radar Chart ---
                     # --- Radar Chart ---
@@ -6835,9 +7038,21 @@ with tab_work:
 
                             dist = dr["distribution"]
                             dc1, dc2, dc3 = st.columns(3)
-                            dc1.metric("Foundational", f"{dist.get(1, 0):.0%}")
-                            dc2.metric("Advanced", f"{dist.get(2, 0):.0%}")
-                            dc3.metric("Leading Edge", f"{dist.get(3, 0):.0%}")
+                            dc1.metric(
+                                "Foundational",
+                                f"{dist.get(1, 0):.0%}",
+                                help=ANALYSIS_HELP_TEXT["Foundational"],
+                            )
+                            dc2.metric(
+                                "Advanced",
+                                f"{dist.get(2, 0):.0%}",
+                                help=ANALYSIS_HELP_TEXT["Advanced"],
+                            )
+                            dc3.metric(
+                                "Leading Edge",
+                                f"{dist.get(3, 0):.0%}",
+                                help=ANALYSIS_HELP_TEXT["Leading Edge"],
+                            )
                             st.markdown("**Top Linguistic Drivers:**")
                             tier_names = {
                                 1: "Foundational", 2: "Advanced", 3: "Leading Edge"
@@ -7071,8 +7286,16 @@ with tab_work:
             if bayes_result:
                 b_col1, b_col2 = st.columns([1, 2])
                 with b_col1:
-                    st.metric("Positive Words Observed", f"{bayes_result['pos_count']:,}")
-                    st.metric("Negative Words Observed", f"{bayes_result['neg_count']:,}")
+                    st.metric(
+                        "Positive Words Observed",
+                        f"{bayes_result['pos_count']:,}",
+                        help=ANALYSIS_HELP_TEXT["Positive Words Observed"],
+                    )
+                    st.metric(
+                        "Negative Words Observed",
+                        f"{bayes_result['neg_count']:,}",
+                        help=ANALYSIS_HELP_TEXT["Negative Words Observed"],
+                    )
                     st.info(f"Mean Expected Positive Rate: **{bayes_result['mean_prob']:.1%}**")
                     st.success(f"95% Credible Interval:\n**{bayes_result['ci_low']:.1%} — {bayes_result['ci_high']:.1%}**")
                 with b_col2:
@@ -7087,7 +7310,6 @@ with tab_work:
                     st.pyplot(fig_bayes)
                     plt.close(fig_bayes)
 
-#>>>>>>>>>>>>>>>>
         GRAPH_RENDER_NODE_LIMIT = 90
         GRAPH_RENDER_EDGE_LIMIT = 180
 
@@ -7120,7 +7342,6 @@ with tab_work:
                     "Max Links", 10, GRAPH_RENDER_EDGE_LIMIT, 90,
                     help="Hard limit on graph links. Lower this for safer rendering on Streamlit Community Cloud."
                 )
-#<<<<<<<<<<<<<<<<
                 repulsion_val = c2.slider(
                     "Repulsion", 100, 3000, 1000, 
                     help="Physics Force: How strongly nodes push away from each other. Increase this if the graph looks like a tight ball."
@@ -7149,7 +7370,6 @@ with tab_work:
                     "Maturity Domain: Colors by which maturity domain the word belongs to (if 12-domain model is active)."
                 )
 
-#>>>>>>>>>>>>>>>>
             G = nx.DiGraph() if directed_graph else nx.Graph()
             sorted_connections = []
             selected_nodes = set()
@@ -7186,7 +7406,6 @@ with tab_work:
                     deg_centrality = nx.degree_centrality(G)
                 except Exception:
                     deg_centrality = {node: 1 for node in G.nodes()}
-#<<<<<<<<<<<<<<<<
                 community_map = {}
                 ai_cluster_info = ""
                 
@@ -7263,7 +7482,6 @@ with tab_work:
                     physicsSettings={"solver": "forceAtlas2Based", "forceAtlas2Based": {"gravitationalConstant": -abs(repulsion_val), "springLength": edge_len_val, "springConstant": 0.05, "damping": 0.4}}
                 )
                 
-#>>>>>>>>>>>>>>>>
                 if len(nodes) > GRAPH_RENDER_NODE_LIMIT or len(edges) > GRAPH_RENDER_EDGE_LIMIT:
                     st.warning(
                         "Graph is too dense to render safely in-browser. "
@@ -7280,7 +7498,6 @@ with tab_work:
                             "The interactive graph could not render safely. "
                             "Try lowering Max Nodes, Max Links, or disabling Physics."
                         )
-#<<<<<<<<<<<<<<<<
 
                 # [NEW] Gephi Export
                 if st.button("📥 Download Graph File (.gexf)"):
