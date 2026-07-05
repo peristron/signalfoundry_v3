@@ -6239,7 +6239,17 @@ with tab_work:
                         m1.metric("Evidence Strength", row["Evidence Strength"])
                         m2.metric("Distinctiveness", row["Distinctiveness"])
                         m3.metric("Confidence", row["Confidence"])
-                        m4.metric("Interpretive Lift", f"{row.get('Interpretive Lift', 0)}/100")
+                        #>>>>>>>>>>>>>>>>
+                        m4.metric(
+                            "Interpretive Lift",
+                            f"{row.get('Interpretive Lift', 0)}/100",
+                            help=(
+                                "A directional ranking score for how useful this signal is likely to be. "
+                                "It combines evidence strength, distinctiveness, signal role, semantic fit, "
+                                "and phrase quality. Higher scores are stronger leads, not final conclusions."
+                            ),
+                        )
+#<<<<<<<<<<<<<<<<
                         if row.get("Ranking Rationale"):
                             st.caption(row["Ranking Rationale"])
                         st.markdown("**Interpretation**")
