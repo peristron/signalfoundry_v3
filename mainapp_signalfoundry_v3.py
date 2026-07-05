@@ -4244,7 +4244,17 @@ def render_resource_shape_panel(insight_df: pd.DataFrame):
                 ):
                     c_role, c_lift = st.columns(2)
                     c_role.metric("Signal Role", item.get("Signal Role", "Supporting Signal"))
-                    c_lift.metric("Interpretive Lift", f"{item.get('Interpretive Lift', 0)}/100")
+                    #>>>>>>>>>>>>>>>>
+                    c_lift.metric(
+                        "Interpretive Lift",
+                        f"{item.get('Interpretive Lift', 0)}/100",
+                        help=(
+                            "A directional ranking score for how useful this signal is likely to be. "
+                            "It combines evidence strength, distinctiveness, signal role, semantic fit, "
+                            "and phrase quality. Higher scores are stronger leads, not final conclusions."
+                        ),
+                    )
+#<<<<<<<<<<<<<<<<
                     if item.get("Ranking Rationale"):
                         st.caption(item["Ranking Rationale"])
                     st.write(item["Interpretation"])
