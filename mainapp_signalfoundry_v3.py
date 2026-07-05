@@ -2796,13 +2796,69 @@ SEMANTIC_SIGNAL_FAMILIES = {
             "risk", "concern", "danger", "dangerous", "threat", "war", "armies",
             "standing", "faction", "tyranny", "disorder", "instability",
             "violence", "invasion", "security", "defense", "defence", "usurpation",
-            "corruption", "jealousy", "ambition", "oppression",
+            "corruption", "jealousy", "ambition", "oppression", "disease",
+            "infection", "infected", "plague", "bacillus", "pathogen", "hazard",
         },
         "interpretation": (
             "This is risk or concern language. The text is marking what could go wrong, "
             "what must be guarded against, or what danger justifies a proposed structure."
         ),
         "question": "What danger or failure is this language trying to prevent?",
+    },
+    "Disease / Hazard": {
+        "markers": {
+            "disease", "infection", "infected", "infectious", "plague", "bacillus",
+            "bacteria", "bacterium", "virus", "typhi", "murium", "trypanosoma",
+            "trypanozoon", "parasite", "pathogen", "contagion", "epidemic",
+            "mortality", "cases", "symptoms", "rats", "mice", "rodents",
+        },
+        "interpretation": (
+            "This points to a hazard or biological agent: disease, infection, organisms, "
+            "vectors, or exposed populations. The important question is what risk is being "
+            "tracked and how it spreads."
+        ),
+        "question": "What hazard, vector, or biological agent is being tracked here?",
+    },
+    "Evidence / Experiment": {
+        "markers": {
+            "experiment", "experiments", "experimental", "test", "tests", "tested",
+            "observed", "observation", "sample", "samples", "specimen", "specimens",
+            "survey", "biological", "guinea", "pigs", "laboratory", "inoculated",
+            "culture", "cultures", "control", "controls", "results", "evidence",
+            "data", "method", "methods", "table", "fig", "figure",
+        },
+        "interpretation": (
+            "This looks like evidence or experiment language: observations, test subjects, "
+            "samples, methods, or findings used to support a technical claim."
+        ),
+        "question": "What evidence, observation, or test is supporting the claim?",
+    },
+    "Intervention / Control Method": {
+        "markers": {
+            "control", "controlled", "extermination", "exterminate", "destruction",
+            "destroy", "destroyed", "killed", "poison", "poisoning", "trap", "traps",
+            "fumigation", "bisulphide", "carbon", "sanitation", "inspection",
+            "prevention", "prevent", "eradication", "campaign", "measures",
+            "treatment", "intervention", "removal", "disinfection",
+        },
+        "interpretation": (
+            "This points to an intervention or control method: a practical action meant to "
+            "reduce risk, interrupt spread, or change conditions."
+        ),
+        "question": "What intervention or control method is being proposed, tested, or relied on?",
+    },
+    "Public Health / Institutional Response": {
+        "markers": {
+            "public", "health", "service", "commission", "hospital", "marinehospital",
+            "marine-hospital", "department", "bureau", "board", "officer", "surgeon",
+            "asst", "assistant", "inspection", "quarantine", "sanitary", "sanitation",
+            "municipal", "federal", "state", "report", "regulation", "authority",
+        },
+        "interpretation": (
+            "This points to an organized public-health or institutional response: agencies, "
+            "services, commissions, inspections, rules, or coordinated prevention work."
+        ),
+        "question": "Which institution or public-health response is being described, and what role does it play?",
     },
     "Risk / Failure Mode": {
         "markers": {
@@ -2914,6 +2970,10 @@ SIGNAL_TYPE_PRIORITY = {
     "Authority / Legitimacy": 1.15,
     "Decision / Tradeoff": 1.15,
     "Risk / Concern": 1.1,
+    "Disease / Hazard": 1.25,
+    "Evidence / Experiment": 1.1,
+    "Intervention / Control Method": 1.2,
+    "Public Health / Institutional Response": 1.2,
     "Isolation / Disconnection": 1.1,
     "Embodiment / Lived Experience": 1.0,
     "Aspiration / Ideology": 0.95,
@@ -3005,6 +3065,44 @@ ABSTRACT_FRAGMENT_TERMS = {
 }
 
 PATTERN_BASED_FAMILY_RULES = [
+    (
+        re.compile(
+            r"\b(?:typhi\s+murium|trypanosoma|trypanozoon|bacillus|plague\s+infection|"
+            r"plague\s+rats|indian\s+plague|danysz\s+virus|disease|infected|infection)\b",
+            re.IGNORECASE,
+        ),
+        "Disease / Hazard",
+        8,
+    ),
+    (
+        re.compile(
+            r"\b(?:guinea\s+pigs|biological\s+survey|white\s+rats|laboratory|"
+            r"inoculated|experiment|experiments|specimens?|samples?|observed|culture)\b",
+            re.IGNORECASE,
+        ),
+        "Evidence / Experiment",
+        8,
+    ),
+    (
+        re.compile(
+            r"\b(?:destruction\s+rats|extermination\s+rats|destroy\s+rats|"
+            r"rats\s+killed|carbon\s+bisulphide|poison|traps?|fumigation|"
+            r"sanitation|disinfection|prevention|eradication)\b",
+            re.IGNORECASE,
+        ),
+        "Intervention / Control Method",
+        8,
+    ),
+    (
+        re.compile(
+            r"\b(?:public\s+health|plague\s+commission|marinehospital\s+service|"
+            r"marine-hospital\s+service|health\s+service|sanitary\s+board|"
+            r"asst\s+surg|assistant\s+surgeon|quarantine|inspection)\b",
+            re.IGNORECASE,
+        ),
+        "Public Health / Institutional Response",
+        8,
+    ),
     (
         re.compile(
             r"\b(?:federal\s+government|national\s+government|state\s+governments?|"
@@ -3119,6 +3217,40 @@ PATTERN_BASED_FAMILY_RULES = [
 ]
 
 FORCED_SIGNAL_FAMILY_RULES = [
+    (
+        re.compile(
+            r"\b(?:typhi\s+murium|trypanosoma|trypanozoon|bacillus|plague\s+infection|"
+            r"plague\s+rats|indian\s+plague|danysz\s+virus|disease|infected|infection)\b",
+            re.IGNORECASE,
+        ),
+        "Disease / Hazard",
+    ),
+    (
+        re.compile(
+            r"\b(?:guinea\s+pigs|biological\s+survey|white\s+rats|laboratory|"
+            r"inoculated|experiment|experiments|specimens?|samples?|observed|culture)\b",
+            re.IGNORECASE,
+        ),
+        "Evidence / Experiment",
+    ),
+    (
+        re.compile(
+            r"\b(?:destruction\s+rats|extermination\s+rats|destroy\s+rats|"
+            r"rats\s+killed|carbon\s+bisulphide|poison|traps?|fumigation|"
+            r"sanitation|disinfection|prevention|eradication)\b",
+            re.IGNORECASE,
+        ),
+        "Intervention / Control Method",
+    ),
+    (
+        re.compile(
+            r"\b(?:public\s+health|plague\s+commission|marinehospital\s+service|"
+            r"marine-hospital\s+service|health\s+service|sanitary\s+board|"
+            r"asst\s+surg|assistant\s+surgeon|quarantine|inspection)\b",
+            re.IGNORECASE,
+        ),
+        "Public Health / Institutional Response",
+    ),
     (
         re.compile(
             r"\b(?:federal\s+government|national\s+government|state\s+governments?|"
@@ -3380,6 +3512,14 @@ def build_interpretation(signal: str, signal_type: str, related_terms: str, supp
         return f"This may signal risk, sensitivity, compliance pressure, or concern around '{signal}'.{related}"
     if signal_type == "Decision / Tradeoff":
         return f"This may mark a decision area where ownership, priorities, or tradeoffs need clarification.{related}"
+    if signal_type == "Disease / Hazard":
+        return f"This may identify a disease, hazard, vector, or biological agent around '{signal}'.{related}"
+    if signal_type == "Evidence / Experiment":
+        return f"This may point to evidence, observations, test subjects, samples, or experimental support around '{signal}'.{related}"
+    if signal_type == "Intervention / Control Method":
+        return f"This may identify a practical control method, prevention measure, or intervention around '{signal}'.{related}"
+    if signal_type == "Public Health / Institutional Response":
+        return f"This may identify an agency, service, commission, inspection process, or organized public-health response around '{signal}'.{related}"
     if signal_type == "Contradiction / Tension":
         return f"This may indicate a tension between intent and reality, or between different stakeholder needs.{related}"
     return f"This is a candidate theme supported by {support} observed signal(s).{related}"
@@ -3398,6 +3538,14 @@ def build_followup_question(signal: str, signal_type: str) -> str:
         return f"What is the real exposure if the concern around '{signal}' is not addressed?"
     if signal_type == "Decision / Tradeoff":
         return f"Who owns the next decision around '{signal}', and what tradeoff is being made?"
+    if signal_type == "Disease / Hazard":
+        return f"What hazard, disease pathway, or exposed population does '{signal}' reveal?"
+    if signal_type == "Evidence / Experiment":
+        return f"What evidence or test is '{signal}' contributing to the larger claim?"
+    if signal_type == "Intervention / Control Method":
+        return f"What control method or prevention strategy does '{signal}' point toward?"
+    if signal_type == "Public Health / Institutional Response":
+        return f"What institution or coordinated response is organized around '{signal}'?"
     if signal_type == "Contradiction / Tension":
         return f"What contradiction or mismatch is the text revealing around '{signal}'?"
     return f"What is the practical implication of the recurring signal '{signal}'?"
