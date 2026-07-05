@@ -5774,12 +5774,13 @@ with st.sidebar:
 #>>>>>>>>>>>>>>>>
 #>>>>>>>>>>>>>>>>
 # --- TABS LAYOUT ---
-st.markdown("### Choose Your Workspace")
+#>>>>>>>>>>>>>>>>
+st.markdown("### Start Here")
 st.caption(
-    "Start in Analyze Documents to scan files and review signals. "
+    "Use Analyze Documents to scan files and review signals. "
     "Use Guide & Use Cases for workflow guidance, examples, and interpretation help."
 )
-
+#<<<<<<<<<<<<<<<<
 tab_work, tab_learn = st.tabs(["🚀 Analyze Documents", "📚 Guide & Use Cases"])
 
 # 1. THE LEARNING TAB (Guides, Examples)
