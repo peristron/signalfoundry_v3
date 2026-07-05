@@ -2995,6 +2995,7 @@ SIGNAL_TYPE_PRIORITY = {
 SIGNAL_ROLE_PRIORITY = {
     "Core Insight": 4,
     "Supporting Signal": 3,
+    "Qualified / Contrast": 2,
     "Supporting Motif": 2,
     "Context / Reference": 1,
     "Low-Specificity": 0,
@@ -3399,6 +3400,83 @@ def is_boilerplate_signal(signal: str, related_terms: str = "", evidence_text: s
     return False
 
 
+QUALIFICATION_CONTEXT_PATTERNS = [
+    re.compile(r"\bnot\s+(?:an?|the|intended|relevant|expected|designed|used|present|final)\b", re.IGNORECASE),
+    re.compile(r"\bdoes\s+not\b|\bdo\s+not\b|\bdid\s+not\b|\bshould\s+not\b|\bwould\s+not\b|\bcannot\b|\bcan't\b", re.IGNORECASE),
+    re.compile(r"\brather\s+than\b|\binstead\b|\bonly\s+as\b|\bnot\s+.*?\bbut\b", re.IGNORECASE),
+    re.compile(r"\bshould\s+not\s+be\s+confused\s+with\b|\bnot\s+the\s+final\s+state\b", re.IGNORECASE),
+    re.compile(r"\bupper[-\s]?bound\b|\bidealized\s+comparison\b|\bnot\s+intended\s+for\b", re.IGNORECASE),
+    re.compile(r"\bno\s+(?:sustained|practical|measurable|meaningful|forbidden|evidence\s+of)\b", re.IGNORECASE),
+]
+
+
+def signal_terms_present(sentence: str, signal_terms: List[str]) -> bool:
+    sentence_l = sentence.lower()
+    if not signal_terms:
+        return False
+    signal_phrase = " ".join(signal_terms).lower()
+    if signal_phrase and signal_phrase in sentence_l:
+        return True
+    meaningful_terms = [
+        term for term in signal_terms
+        if len(term) >= 4 and term not in LOW_INFORMATION_SIGNAL_TERMS
+    ]
+    if not meaningful_terms:
+        return False
+    matches = sum(1 for term in meaningful_terms if term in sentence_l)
+    return matches >= max(1, min(2, len(meaningful_terms)))
+
+
+def qualification_context_profile(signal: str, evidence_text: str) -> Dict[str, Any]:
+    """
+    Detects whether a signal is being asserted directly or used mainly as a
+    contrast, rejected idea, limitation, or idealized comparison.
+    """
+    signal_terms = [
+        token for token in re.findall(r"[a-z][a-z-]+", str(signal).lower())
+        if token not in LOW_INFORMATION_SIGNAL_TERMS
+    ]
+    profile = {
+        "Contextual Role": "Direct / Unqualified",
+        "Qualification Score": 0.0,
+        "Qualification Cue Count": 0,
+        "Qualification Evidence": "",
+    }
+    if not signal_terms or not evidence_text:
+        return profile
+
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", str(evidence_text))
+        if sentence.strip()
+    ]
+    candidate_sentences = [
+        sentence for sentence in sentences
+        if signal_terms_present(sentence, signal_terms)
+    ]
+    if not candidate_sentences:
+        return profile
+
+    qualified = []
+    for sentence in candidate_sentences:
+        if any(pattern.search(sentence) for pattern in QUALIFICATION_CONTEXT_PATTERNS):
+            qualified.append(sentence)
+
+    if not qualified:
+        return profile
+
+    ratio = len(qualified) / max(1, len(candidate_sentences))
+    profile["Qualification Score"] = round(ratio, 3)
+    profile["Qualification Cue Count"] = len(qualified)
+    profile["Qualification Evidence"] = concise_sentence(qualified[0], 260)
+
+    if ratio >= 0.5 or len(qualified) >= 2:
+        profile["Contextual Role"] = "Qualified / Contrast"
+    else:
+        profile["Contextual Role"] = "Partly Qualified"
+    return profile
+
+
 def calibrate_signal_card(
     signal: str,
     signal_type: str,
@@ -3688,6 +3766,7 @@ def interpretive_lift_score(
     role_adjustment = {
         "Core Insight": 14,
         "Supporting Signal": 5,
+        "Qualified / Contrast": -3,
         "Supporting Motif": 0,
         "Context / Reference": -12,
         "Low-Specificity": -25,
@@ -3745,6 +3824,7 @@ def select_balanced_insight_cards(df: pd.DataFrame, top_n: int) -> pd.DataFrame:
     role_caps = {
         "Core Insight": max(4, min(6, top_n - 3)),
         "Supporting Signal": 3,
+        "Qualified / Contrast": 3,
         "Supporting Motif": 2,
         "Context / Reference": 2,
         "Low-Specificity": 2,
@@ -3834,6 +3914,15 @@ def build_insight_cards(
             support=support,
             distinctiveness=distinctiveness,
         )
+        context_profile = qualification_context_profile(signal, evidence_text)
+        contextual_role = context_profile["Contextual Role"]
+        if contextual_role == "Qualified / Contrast":
+            phrase_quality = max(0, phrase_quality - 18)
+            phrase_quality_reasons.append("qualified or contrast context")
+        elif contextual_role == "Partly Qualified":
+            phrase_quality = max(0, phrase_quality - 8)
+            phrase_quality_reasons.append("partly qualified context")
+
         signal_role, role_reason = classify_signal_role(
             signal=signal,
             signal_type=calibrated_type,
@@ -3842,6 +3931,13 @@ def build_insight_cards(
             evidence_count=len(evidence),
             phrase_quality=phrase_quality,
         )
+        if contextual_role == "Qualified / Contrast":
+            signal_role = "Qualified / Contrast"
+            role_reason = (
+                "The evidence appears to use this signal mainly as a rejected idea, "
+                "limitation, contrast, or idealized comparison."
+            )
+
         lift_score = interpretive_lift_score(
             signal_type=calibrated_type,
             role=signal_role,
@@ -3850,11 +3946,29 @@ def build_insight_cards(
             evidence_count=len(evidence),
             phrase_quality=phrase_quality,
         )
+        if contextual_role == "Qualified / Contrast":
+            calibrated_interpretation = (
+                "This signal appears mainly in qualified or contrastive language, so it may be "
+                "something the text is rejecting, limiting, or using for comparison rather than "
+                f"asserting as the central claim. {calibrated_interpretation}"
+            )
+            calibrated_question = (
+                f"Is '{signal}' a central claim in this corpus, or is it mainly an idea the text "
+                "rejects, limits, or uses as contrast?"
+            )
+        elif contextual_role == "Partly Qualified":
+            calibrated_interpretation = (
+                "Some evidence around this signal is qualified or contrastive, so review excerpts "
+                f"before treating it as a direct theme. {calibrated_interpretation}"
+            )
 
         rows.append({
             "Signal": signal,
             "Signal Type": calibrated_type,
             "Signal Role": signal_role,
+            "Contextual Role": contextual_role,
+            "Qualification Score": context_profile["Qualification Score"],
+            "Qualification Evidence": context_profile["Qualification Evidence"],
             "Interpretive Lift": lift_score,
             "Evidence Strength": support,
             "Distinctiveness": round(distinctiveness, 3),
@@ -3881,6 +3995,9 @@ def build_insight_cards(
                 "Signal": signal,
                 "Signal Type": "Absence / Weak Signal",
                 "Signal Role": "Supporting Signal",
+                "Contextual Role": "Expected Concept Check",
+                "Qualification Score": 0.0,
+                "Qualification Evidence": "",
                 "Interpretive Lift": 35,
                 "Evidence Strength": int(row["Observed Count"]),
                 "Distinctiveness": 0.0,
@@ -3902,9 +4019,13 @@ def build_ai_insight_context(insight_df: pd.DataFrame, max_cards: int = 6) -> st
         return ""
     lines = ["Insight Cards:"]
     for idx, row in insight_df.head(max_cards).iterrows():
+        contextual_note = ""
+        if row.get("Contextual Role") and row.get("Contextual Role") != "Direct / Unqualified":
+            contextual_note = f"contextual_role={row.get('Contextual Role')} | "
         lines.append(
             f"{idx + 1}. {row['Signal']} | {row['Signal Type']} | "
             f"role={row.get('Signal Role', 'Signal')} | "
+            f"{contextual_note}"
             f"lift={row.get('Interpretive Lift', 'n/a')} | "
             f"confidence={row['Confidence']} | interpretation={row['Interpretation']}"
         )
@@ -4062,6 +4183,7 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
         .map({
             "Core Insight": 1.0,
             "Supporting Signal": 0.8,
+            "Qualified / Contrast": 0.45,
             "Supporting Motif": 0.35,
             "Context / Reference": 0.15,
             "Low-Specificity": 0.1,
@@ -4156,6 +4278,9 @@ def resource_shape_diagnostics_dataframe(insight_df: pd.DataFrame) -> pd.DataFra
         "Signal",
         "Signal Type",
         "Signal Role",
+        "Contextual Role",
+        "Qualification Score",
+        "Qualification Evidence",
         "Evidence Strength",
         "Distinctiveness",
         "Confidence",
@@ -4191,6 +4316,7 @@ def resource_shape_diagnostics_dataframe(insight_df: pd.DataFrame) -> pd.DataFra
     role_weight_map = {
         "Core Insight": 1.0,
         "Supporting Signal": 0.8,
+        "Qualified / Contrast": 0.45,
         "Supporting Motif": 0.35,
         "Context / Reference": 0.15,
         "Low-Specificity": 0.1,
@@ -4227,6 +4353,12 @@ def resource_shape_diagnostics_dataframe(insight_df: pd.DataFrame) -> pd.DataFra
         usable["Ranking Rationale"] = ""
     if "Signal Role" not in usable.columns:
         usable["Signal Role"] = "Supporting Signal"
+    if "Contextual Role" not in usable.columns:
+        usable["Contextual Role"] = "Direct / Unqualified"
+    if "Qualification Score" not in usable.columns:
+        usable["Qualification Score"] = 0.0
+    if "Qualification Evidence" not in usable.columns:
+        usable["Qualification Evidence"] = ""
 
     return usable[columns].sort_values("Shape Weight", ascending=False).reset_index(drop=True)
 
@@ -4252,7 +4384,13 @@ SIGNAL_DIRECTION_LABELS = {
 ANALYSIS_HELP_TEXT = {
     "Signal Role": (
         "How this item is being used in the analysis. Core Insights are strongest; "
-        "Supporting Signals, Motifs, Context, and Low-Specificity items help explain what was promoted or demoted."
+        "Supporting Signals, Qualified / Contrast items, Motifs, Context, and Low-Specificity items help explain what was promoted or demoted."
+    ),
+    "Contextual Role": (
+        "Whether the signal appears as a direct theme or mainly in qualified, rejected, limiting, or contrastive language."
+    ),
+    "Qualification Score": (
+        "Approximate share of signal-bearing evidence that contains qualification cues such as not, rather than, instead, or only as comparison."
     ),
     "Signal Type": (
         "The app's best-fit analytical category for this signal, such as risk, infrastructure, "
@@ -4808,9 +4946,11 @@ def render_workflow_guide():
 
         - **Signal:** the phrase or concept being surfaced
         - **Signal Type:** likely analytical category
+        - **Signal Role:** whether the signal is core, supporting, qualified/contrast, contextual, or low-specificity
         - **Evidence Strength:** how much support exists
         - **Distinctiveness:** how much the signal stands out
         - **Confidence:** low, medium, or high
+        - **Contextual Role:** whether the signal appears as a direct theme or mainly as a rejected idea, limitation, comparison, or qualification
         - **Representative Evidence:** short source excerpts when available
         - **Interpretation:** what the signal may indicate
         - **Follow-up Question:** what a human should ask next
@@ -4837,6 +4977,8 @@ def render_workflow_guide():
         - Absence / Weak Signal
 
         The Resource Shape is a first-pass synthesis, not a final conclusion. The supporting cards are analytical leads that help you verify or challenge it.
+
+        **Qualified / Contrast** signals deserve special care. They may be important precisely because the document is rejecting, limiting, or comparing them. For example, a paper may mention "isotope separation" mainly to clarify that the experiment is **not** about isotope separation.
 
         ---
 
@@ -5642,6 +5784,9 @@ def build_calibration_export_zip(
                 "concept checks, signal calibration, and scan settings.\n\n"
                 "resource_shape_weight_diagnostics.csv shows the component scores "
                 "behind Resource Shape ranking so unexpected rankings are easier to debug.\n\n"
+                "Insight cards may include Contextual Role, Qualification Score, and "
+                "Qualification Evidence columns. These flag signals that appear mainly "
+                "as rejected ideas, limitations, comparisons, or other qualified claims.\n\n"
                 "Safe exports omit representative evidence from insight_cards.csv. "
                 "Full diagnostic exports include evidence excerpts and should be shared carefully.\n"
             ).encode("utf-8"),
@@ -6525,7 +6670,7 @@ with tab_work:
                     "Filter by signal role",
                     sorted(insight_df["Signal Role"].unique()) if "Signal Role" in insight_df.columns else [],
                     default=[],
-                    help="Core Insight items are strongest. Supporting, motif, context, and low-specificity items help explain what was promoted or demoted.",
+                    help="Core Insight items are strongest. Qualified / Contrast items are signals used as rejected ideas, limitations, or comparisons.",
                 )
                 signal_type_filter = st.multiselect(
                     "Filter by signal type",
@@ -6572,6 +6717,12 @@ with tab_work:
                         )
                         if row.get("Ranking Rationale"):
                             st.caption(row["Ranking Rationale"])
+                        if row.get("Contextual Role") and row.get("Contextual Role") != "Direct / Unqualified":
+                            st.info(
+                                f"Contextual role: **{row.get('Contextual Role')}**. "
+                                "This signal may be used as contrast, limitation, or rejected framing. "
+                                f"{row.get('Qualification Evidence', '')}"
+                            )
                         st.markdown("**Interpretation**")
                         st.write(row["Interpretation"])
                         st.markdown("**Representative Evidence**")
