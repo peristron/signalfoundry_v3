@@ -5772,7 +5772,15 @@ with st.sidebar:
 
 # --- TABS LAYOUT ---
 #>>>>>>>>>>>>>>>>
-tab_work, tab_learn = st.tabs(["🚀 Workspace", "📚 How to use this app"])
+#>>>>>>>>>>>>>>>>
+# --- TABS LAYOUT ---
+st.markdown("### Choose Your Workspace")
+st.caption(
+    "Start in Analyze Documents to scan files and review signals. "
+    "Use Guide & Use Cases for workflow guidance, examples, and interpretation help."
+)
+
+tab_work, tab_learn = st.tabs(["🚀 Analyze Documents", "📚 Guide & Use Cases"])
 
 # 1. THE LEARNING TAB (Guides, Examples)
 with tab_learn:
@@ -5785,6 +5793,7 @@ with tab_learn:
 
 # 2. THE WORKSPACE TAB (Main Engine)
 with tab_work:
+#<<<<<<<<<<<<<<<<
 #<<<<<<<<<<<<<<<<
     st.subheader("🚀 Scan Workspace")
     st.caption(
