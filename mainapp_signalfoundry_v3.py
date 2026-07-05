@@ -3894,6 +3894,111 @@ def build_ai_insight_context(insight_df: pd.DataFrame, max_cards: int = 6) -> st
         )
     return "\n".join(lines)
 
+def build_ai_context_brief(
+    scanner: StreamScanner,
+    combined_counts: Counter,
+    insight_df: pd.DataFrame,
+    text_stats: Dict[str, Any],
+    maturity_result: Optional[Dict[str, Any]] = None,
+    graph_cluster_info: str = "N/A",
+    max_items: int = 20,
+) -> str:
+    lines = [
+        "Signal Foundry AI Context Brief",
+        "",
+        "Privacy boundary: this context contains summaries, counts, labels, and short insight-card interpretations. It does not include the full raw source documents.",
+        "",
+        "Corpus Stats:",
+        f"- Rows processed: {scanner.total_rows_processed:,}",
+        f"- Total tokens after cleaning: {sum(combined_counts.values()):,}",
+        f"- Unique vocabulary: {len(combined_counts):,}",
+        f"- Evidence snippets retained locally: {len(scanner.evidence_docs):,}",
+        f"- Evidence cap reached: {scanner.evidence_limit_reached}",
+    ]
+
+    if text_stats:
+        lines.extend([
+            f"- Avg word length: {text_stats.get('Avg Word Length', 'N/A')}",
+            f"- Lexical diversity: {text_stats.get('Lexical Diversity', 'N/A')}",
+        ])
+
+    top_terms = ", ".join([f"{w} ({c})" for w, c in combined_counts.most_common(max_items)])
+    top_bigrams = ", ".join([
+        f"{w1} {w2} ({c})"
+        for (w1, w2), c in scanner.global_bigrams.most_common(max_items)
+    ])
+    top_entities = ", ".join([
+        f"{entity} ({count})"
+        for entity, count in scanner.entity_counts.most_common(12)
+    ])
+
+    lines.extend([
+        "",
+        "Top Terms:",
+        top_terms or "No top terms available.",
+        "",
+        "Top Bigrams:",
+        top_bigrams or "No bigrams available.",
+        "",
+        "Top Entities:",
+        top_entities or "No entities detected.",
+    ])
+
+    if graph_cluster_info and graph_cluster_info != "N/A":
+        lines.extend(["", "Graph / Community Sketch:", graph_cluster_info])
+
+    if isinstance(insight_df, pd.DataFrame) and not insight_df.empty:
+        compass_df = build_signal_compass_df(insight_df)
+        if not compass_df.empty:
+            compass_lines = [
+                f"- {row['Direction']}: {row['Share']:.0%} (example: {row['Example Signal']})"
+                for _, row in compass_df.head(5).iterrows()
+            ]
+            lines.extend(["", "Signal Compass:", *compass_lines])
+
+        resource_shape = build_resource_shape(insight_df)
+        lines.extend([
+            "",
+            "Resource Shape:",
+            resource_shape.get("summary", "No Resource Shape summary available."),
+        ])
+
+        if resource_shape.get("families"):
+            lines.append("Signal Families:")
+            for family in resource_shape["families"][:5]:
+                lines.append(
+                    f"- {family.get('Signal Type')}: {family.get('Cards')} card(s), "
+                    f"example {family.get('TopSignal')}"
+                )
+
+        role_mix = signal_role_distribution_dataframe(insight_df)
+        if not role_mix.empty:
+            lines.append("Signal Role Mix:")
+            for _, row in role_mix.iterrows():
+                lines.append(f"- {row['Signal Role']}: {row['Cards']}")
+
+        lines.extend(["", build_ai_insight_context(insight_df, max_cards=8)])
+
+    if maturity_result:
+        lines.extend(["", "Maturity Context:"])
+        if maturity_result.get("type") == "domain_based":
+            domain_summary_parts = []
+            for dk in sorted(maturity_result.get("domain_results", {}).keys()):
+                dr = maturity_result["domain_results"][dk]
+                if dr.get("signals", 0) > 0:
+                    domain_summary_parts.append(
+                        f"- {dr['short']}: {dr['score']}/3.0 ({dr['tier_label']}), signals={dr['signals']}"
+                    )
+            if domain_summary_parts:
+                lines.extend(domain_summary_parts)
+                lines.append(f"Composite Score: {maturity_result.get('overall_score', 'N/A')}/3.0")
+            else:
+                lines.append("No maturity domains had enough signal to summarize.")
+        else:
+            lines.append(f"Maturity Score: {maturity_result.get('overall_score', 'N/A')}/5.0")
+
+    return "\n".join(lines)
+
 
 def concise_sentence(text: str, max_chars: int = 220) -> str:
     clean = " ".join(str(text).split())
@@ -4425,13 +4530,44 @@ def render_workflow_guide():
 
         ---
 
+        ### 🤖 How to Use the AI Analyst
+
+        The AI Analyst is a second-pass helper. It does **not** read the full raw documents. It receives a privacy-preserving context brief built from:
+
+        - corpus stats
+        - top terms and bigrams
+        - top detected entities
+        - Signal Compass
+        - Resource Shape
+        - Insight Cards and signal roles
+        - graph/community summary when available
+        - maturity scores and domains when a maturity assessment has been run
+
+        Use **What the AI can see** to preview the exact briefing before asking the AI anything.
+
+        Good uses:
+
+        - Ask for a plain-language synthesis of the current scan.
+        - Ask what the Signal Compass and Resource Shape imply.
+        - Ask which evidence cards deserve human review.
+        - Ask what maturity domains look strongest or weakest after running Maturity.
+        - Ask what questions a human analyst should investigate next.
+
+        Limits:
+
+        - It cannot quote or inspect the full source document unless that text appears in the summarized context.
+        - It may miss details that are visible in other tabs but not included in the AI context brief.
+        - It should be treated as an analyst aide, not a final judgment.
+
+        ---
+
         ### 🧭 Reading Between the Lines
 
         Signal Foundry does not magically know intent. It surfaces patterns that help a person interpret the text.
 
         Useful moves:
 
-        - Read Resource Shape first.
+        - Read Signal Compass and Resource Shape first.
         - Use Key Insights to decide what deserves attention.
         - Open supporting evidence cards before making claims.
         - Look for high-confidence insight cards after the top-level synthesis.
@@ -7330,27 +7466,28 @@ with tab_work:
             "This allows for high-level pattern recognition without exposing the full text content."
         )
         
-        top_u = [w for w, c in combined_counts.most_common(50)]
-        top_b = [" ".join(bg) for bg, c in scanner.global_bigrams.most_common(20)]
-        # Build AI context string
-        ai_ctx_str = f"Top Words: {', '.join(top_u)}\nTop Bigrams: {', '.join(top_b)}\nGraph Clusters: {locals().get('ai_cluster_info', 'N/A')}"
-        if 'insight_df' in locals() and isinstance(insight_df, pd.DataFrame) and not insight_df.empty:
-            ai_ctx_str += "\n\n" + build_ai_insight_context(insight_df)
-        # Enrich with maturity data if available
-        if 'maturity_result' in locals() and maturity_result:
-            if maturity_result.get("type") == "domain_based":
-                domain_summary_parts = []
-                for dk in sorted(maturity_result["domain_results"].keys()):
-                    dr = maturity_result["domain_results"][dk]
-                    if dr["signals"] > 0:
-                        domain_summary_parts.append(
-                            f"{dr['short']}: {dr['score']}/3.0 ({dr['tier_label']})"
-                        )
-                if domain_summary_parts:
-                    ai_ctx_str += f"\n\n12-Domain Maturity Scores:\n" + "\n".join(domain_summary_parts)
-                    ai_ctx_str += f"\nComposite Score: {maturity_result['overall_score']}/3.0"
-            else:
-                ai_ctx_str += f"\nMaturity Score: {maturity_result.get('overall_score', 'N/A')}/5.0"
+        ai_ctx_str = build_ai_context_brief(
+            scanner=scanner,
+            combined_counts=combined_counts,
+            insight_df=insight_df if 'insight_df' in locals() and isinstance(insight_df, pd.DataFrame) else pd.DataFrame(),
+            text_stats=text_stats if 'text_stats' in locals() else {},
+            maturity_result=maturity_result if 'maturity_result' in locals() else None,
+            graph_cluster_info=locals().get('ai_cluster_info', 'N/A'),
+            max_items=25,
+        )
+
+        with st.expander("🔎 What the AI can see", expanded=False):
+            st.caption(
+                "This is the privacy-preserving briefing sent to the AI provider. "
+                "It includes summaries, counts, signal labels, and maturity summaries when available, not full raw documents."
+            )
+            st.text_area(
+                "AI context preview",
+                ai_ctx_str,
+                height=320,
+                disabled=True,
+                help="Use this to understand what the AI Analyst can and cannot use when answering.",
+            )
         
         col_ai_1, col_ai_2 = st.columns(2)
         
@@ -7359,12 +7496,12 @@ with tab_work:
             if st.button("✨ Identify Key Themes", type="primary"):
                 with st.status("Analyzing..."):
                     system_prompt = (
-                        "You are a qualitative data analyst. Analyze the provided word frequency lists to identify "
-                        "3 key themes, potential anomalies, tensions, and a summary of the subject matter. "
-                        "When Insight Cards are provided, use them to ground the interpretation and call out "
-                        "pain points, needs, blockers, opportunities, risks, decisions, and contradictions. "
-                        "If 12-Domain Maturity Scores are provided, also identify the strongest and weakest domains, "
-                        "and suggest 2-3 coaching priorities based on the gaps."
+                        "You are a qualitative data analyst using a privacy-preserving analytical sketch. "
+                        "Analyze the Signal Compass, Resource Shape, signal roles, top terms, entities, "
+                        "Insight Cards, and maturity summaries if provided. Identify the main shape of the "
+                        "resource, 3-5 key themes, notable risks/tensions/anomalies, and the most useful "
+                        "human follow-up questions. Do not claim to have read raw source documents. "
+                        "Distinguish evidence from interpretation."
                     )
                     user_prompt = f"Data Context:\n{ai_ctx_str}"
                     response = call_llm_and_track_cost(system_prompt, user_prompt, ai_config)
@@ -7379,8 +7516,10 @@ with tab_work:
                     with st.status("Thinking..."):
                         system_prompt = (
                             "You are an expert analyst. Answer the user's question based ONLY on the provided "
-                            "summary statistics, associations, and Insight Cards. If you cannot answer from "
-                            "the data, say so. Distinguish evidence from interpretation."
+                            "Signal Foundry context brief: summary statistics, Signal Compass, Resource Shape, "
+                            "associations, Insight Cards, entities, and maturity summaries when present. "
+                            "If you cannot answer from that context, say so. Do not imply access to raw source "
+                            "documents. Distinguish evidence from interpretation."
                         )
                         user_prompt = f"Data Context:\n{ai_ctx_str}\n\nUser Question: {user_question}"
                         response = call_llm_and_track_cost(system_prompt, user_prompt, ai_config)
