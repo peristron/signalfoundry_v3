@@ -13,6 +13,7 @@ import tempfile
 import logging
 import secrets
 from dataclasses import dataclass, field
+from functools import lru_cache
 from urllib.parse import urlparse
 from collections import Counter, defaultdict
 from typing import Dict, List, Tuple, Iterable, Optional, Callable, Any, Union, Set
@@ -31,6 +32,8 @@ import matplotlib.dates as mdates
 from io import BytesIO
 from wordcloud import WordCloud, STOPWORDS
 from matplotlib import font_manager
+# Requires Python 3.10+. Streamlit Community Cloud currently supports this,
+# but requirements/README should keep the Python version expectation explicit.
 from itertools import pairwise
 import openai
 
@@ -335,9 +338,6 @@ class StreamScanner:
         except Exception as e:
             logger.error(f"JSON Load Error: {e}")
             return False
-
-# 📈 maturity modeling logic (Multi-persona)
-# ==========================================
 
 # 📈 maturity modeling logic (multi-Persona)
 # ==========================================
@@ -1151,6 +1151,8 @@ class MaturityAssessor:
         for (w1, w2), freq in bigrams.items():
             phrase = f"{w1} {w2}"
             phrase_counts[phrase] = phrase_counts.get(phrase, 0) + freq
+        # Phrase hits carry more context than single-word hits, so they receive
+        # a modest boost without letting one phrase dominate the whole score.
         PHRASE_WEIGHT = 1.5
         for lvl, data in levels.items():
             phrases = data.get("phrases", []) or []
@@ -1181,6 +1183,8 @@ class MaturityAssessor:
         if model_name not in self.models:
             return None
         domains = self.models[model_name]["domains"]
+        # Phrase hits carry more context than single-word hits, so they receive
+        # a modest boost without letting one phrase dominate a domain score.
         PHRASE_WEIGHT = 1.5
         # Build bigram lookup once
         phrase_counts: Dict[str, int] = {}
@@ -1813,6 +1817,7 @@ def collect_speaker_labels_from_file(
     return collect_speaker_labels_from_text(text, max_lines=max_lines)
 
 
+@lru_cache(maxsize=1)
 def collect_maturity_vocabulary() -> Set[str]:
     """
     Collects maturity-model vocabulary so maturity-critical words are not
@@ -1823,6 +1828,9 @@ def collect_maturity_vocabulary() -> Set[str]:
     - individual words from maturity phrases
 
     Example: "student success" protects both "student" and "success".
+
+    Cached because maturity vocabularies are static during an app run and this
+    function may be called every time scan settings are rebuilt.
     """
     protected_terms: Set[str] = set()
 
@@ -3552,6 +3560,8 @@ def build_followup_question(signal: str, signal_type: str) -> str:
 
 
 def confidence_label(support: int, evidence_count: int, distinctiveness: float) -> str:
+    # Confidence is intentionally conservative: repeated evidence matters more
+    # than a single distinctive phrase, but distinctive one-offs can still be Medium.
     if support >= 20 and evidence_count >= 3:
         return "High"
     if support >= 6 and evidence_count >= 2:
@@ -3564,6 +3574,8 @@ def signal_phrase_quality(signal: str, signal_type: str, support: int, distincti
     normalized = " ".join(str(signal).lower().split())
     parts = normalized.split()
     reasons = []
+    # Start from a neutral midpoint, then reward clear/compact signals and
+    # penalize boilerplate, fragments, and generic connective language.
     score = 50
 
     if not parts:
@@ -3666,6 +3678,8 @@ def interpretive_lift_score(
     evidence_count: int,
     phrase_quality: int,
 ) -> int:
+    # Lift is directional rather than scientific: log-scaled support prevents
+    # very frequent terms from overwhelming distinctiveness, evidence, and role.
     support_score = min(math.log1p(max(support, 0)) * 12, 30)
     distinctiveness_score = min(max(distinctiveness, 0.0) * 20, 20)
     evidence_score = min(evidence_count * 8, 20)
@@ -3709,6 +3723,8 @@ def is_near_duplicate_signal(candidate: pd.Series, selected_rows: List[pd.Series
         overlap_ratio = overlap / max(1, min(len(candidate_terms), len(selected_terms)))
         same_type = candidate.get("Signal Type") == selected.get("Signal Type")
         same_role = candidate.get("Signal Role") == selected.get("Signal Role")
+        # Strong token overlap is treated as duplicate regardless of category.
+        # Moderate overlap is only suppressed when the analytical role/type also matches.
         if overlap_ratio >= 0.67:
             return True
         if overlap_ratio >= 0.5 and (same_type or same_role):
@@ -4062,6 +4078,9 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
         .fillna(1.0)
     )
     lift_component = usable["Interpretive Lift"].fillna(50).astype(float) / 10 if "Interpretive Lift" in usable.columns else 0
+    # Resource Shape is intentionally directional, not a formal score:
+    # base signal strength is adjusted by family priority, signal role, and
+    # a tension demotion so one useful-but-common category does not dominate.
     usable["Shape Weight"] = (
         (
             usable["Evidence Strength"].fillna(0).astype(float)
@@ -4126,6 +4145,90 @@ def build_resource_shape(insight_df: pd.DataFrame, top_n: int = 5) -> Dict[str, 
         "families": families,
         "key_insights": key_insights,
     }
+
+
+def resource_shape_diagnostics_dataframe(insight_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Exposes the Resource Shape weighting ingredients for calibration review.
+    This mirrors the current formula and does not change rankings.
+    """
+    columns = [
+        "Signal",
+        "Signal Type",
+        "Signal Role",
+        "Evidence Strength",
+        "Distinctiveness",
+        "Confidence",
+        "Confidence Weight",
+        "Lift Component",
+        "Family Priority",
+        "Role Weight",
+        "Tension Weight",
+        "Base Signal Score",
+        "Shape Weight",
+        "Ranking Rationale",
+    ]
+    if insight_df is None or insight_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    usable = insight_df[
+        ~insight_df["Signal Type"].isin([
+            "Absence / Weak Signal",
+            "Low-Specificity Signal",
+            "Source / Boilerplate",
+        ])
+    ].copy()
+    if "Signal Role" in usable.columns:
+        role_filtered = usable[
+            ~usable["Signal Role"].isin(["Context / Reference", "Low-Specificity"])
+        ].copy()
+        if not role_filtered.empty:
+            usable = role_filtered
+    if usable.empty:
+        usable = insight_df.copy()
+
+    confidence_weight = {"High": 3.0, "Medium": 1.5, "Low": 0.5}
+    role_weight_map = {
+        "Core Insight": 1.0,
+        "Supporting Signal": 0.8,
+        "Supporting Motif": 0.35,
+        "Context / Reference": 0.15,
+        "Low-Specificity": 0.1,
+    }
+    tension_weight_map = {"Contradiction / Tension": 0.55}
+
+    usable["Confidence Weight"] = usable["Confidence"].map(confidence_weight).fillna(0.5)
+    usable["Lift Component"] = (
+        usable["Interpretive Lift"].fillna(50).astype(float) / 10
+        if "Interpretive Lift" in usable.columns
+        else 0
+    )
+    usable["Family Priority"] = usable["Signal Type"].map(SIGNAL_TYPE_PRIORITY).fillna(1.0)
+    usable["Role Weight"] = (
+        usable["Signal Role"].map(role_weight_map).fillna(0.75)
+        if "Signal Role" in usable.columns
+        else 1.0
+    )
+    usable["Tension Weight"] = usable["Signal Type"].map(tension_weight_map).fillna(1.0)
+    usable["Base Signal Score"] = (
+        usable["Evidence Strength"].fillna(0).astype(float)
+        + usable["Distinctiveness"].fillna(0).astype(float) * 2
+        + usable["Confidence Weight"]
+        + usable["Lift Component"]
+    )
+    usable["Shape Weight"] = (
+        usable["Base Signal Score"]
+        * usable["Family Priority"]
+        * usable["Role Weight"]
+        * usable["Tension Weight"]
+    ).round(3)
+
+    if "Ranking Rationale" not in usable.columns:
+        usable["Ranking Rationale"] = ""
+    if "Signal Role" not in usable.columns:
+        usable["Signal Role"] = "Supporting Signal"
+
+    return usable[columns].sort_values("Shape Weight", ascending=False).reset_index(drop=True)
 
 SIGNAL_DIRECTION_LABELS = {
     "Infrastructure / System Dependence": "System-dependence heavy",
@@ -4631,13 +4734,16 @@ def render_workflow_guide():
            Check which people, organizations, systems, programs, places, or named concepts keep appearing.
 
         9. **Network Graph**  
-           Explore relationships between terms after the core signals make sense.
+           Explore relationships between terms after the core signals make sense. The graph controls are capped for safer browser rendering on Streamlit Community Cloud.
 
         10. **Maturity**  
            Use this when the source material fits one of the maturity lenses.
 
         11. **AI Analyst**  
            Use last. It works best when the visible dashboard and evidence cards already look reasonable.
+
+        12. **Calibration Export**  
+           Admin-only. Use this when testing or comparing runs. The ZIP includes insight cards, Resource Shape files, and weighting diagnostics that help explain why signals ranked where they did.
 
         ---
 
@@ -4762,6 +4868,23 @@ def render_workflow_guide():
         - It cannot quote or inspect the full source document unless that text appears in the summarized context.
         - It may miss details that are visible in other tabs but not included in the AI context brief.
         - It should be treated as an analyst aide, not a final judgment.
+
+        ---
+
+        ### 🧪 Calibration Export
+
+        The Calibration Export is password-gated because it is mainly an admin/testing tool.
+
+        Use it when you want to:
+
+        - compare repeated runs of the same document
+        - test stopword or concept-check changes
+        - preserve a snapshot of an analysis
+        - review why a Resource Shape or insight-card ranking changed
+
+        The export includes a `resource_shape_weight_diagnostics.csv` file. This file breaks rankings into readable ingredients such as evidence strength, distinctiveness, confidence weight, interpretive lift, family priority, role weight, and final shape weight.
+
+        Safe exports omit representative evidence from the insight-card CSV. Full diagnostic exports include evidence excerpts and should be shared carefully.
 
         ---
 
@@ -5438,6 +5561,7 @@ def build_calibration_export_zip(
     if not include_excerpts and "Representative Evidence" in insight_export_df.columns:
         insight_export_df = insight_export_df.drop(columns=["Representative Evidence"])
 
+    shape_diagnostics_df = resource_shape_diagnostics_dataframe(insight_df)
     total_words = max(sum(combined_counts.values()), 1)
     npmi_df = calculate_npmi(scanner.global_bigrams, combined_counts, total_words)
     tfidf_df = calculate_tfidf(scanner, top_n=100)
@@ -5477,6 +5601,11 @@ def build_calibration_export_zip(
         "hypothesis_concept_check": expected_terms_raw,
         "text_stats": text_stats,
         "resource_shape_summary": resource_shape.get("summary"),
+        "resource_shape_weighting": {
+            "base_signal_score": "evidence_strength + distinctiveness*2 + confidence_weight + interpretive_lift/10",
+            "shape_weight": "base_signal_score * family_priority * role_weight * tension_weight",
+            "purpose": "Directional ranking transparency for calibration review; not a formal statistical score.",
+        },
     }
 
     notes_md = calibration_notes_markdown(
@@ -5495,6 +5624,7 @@ def build_calibration_export_zip(
         zf.writestr("resource_shape.json", json_to_bytes(resource_shape))
         zf.writestr("resource_shape_families.csv", dataframe_to_csv_bytes(families_df))
         zf.writestr("resource_shape_key_insights.csv", dataframe_to_csv_bytes(key_insights_df))
+        zf.writestr("resource_shape_weight_diagnostics.csv", dataframe_to_csv_bytes(shape_diagnostics_df))
         zf.writestr("signal_type_distribution.csv", dataframe_to_csv_bytes(signal_type_distribution_dataframe(insight_df)))
         zf.writestr("signal_role_distribution.csv", dataframe_to_csv_bytes(signal_role_distribution_dataframe(insight_df)))
         zf.writestr("text_stats.csv", dataframe_to_csv_bytes(pd.DataFrame([text_stats])))
@@ -5510,6 +5640,8 @@ def build_calibration_export_zip(
                 "Signal Foundry calibration export.\n\n"
                 "Use this package to compare repeated runs while tuning stopwords, "
                 "concept checks, signal calibration, and scan settings.\n\n"
+                "resource_shape_weight_diagnostics.csv shows the component scores "
+                "behind Resource Shape ranking so unexpected rankings are easier to debug.\n\n"
                 "Safe exports omit representative evidence from insight_cards.csv. "
                 "Full diagnostic exports include evidence excerpts and should be shared carefully.\n"
             ).encode("utf-8"),
@@ -7329,6 +7461,10 @@ with tab_work:
         if show_graph:
             st.subheader("🔗 Network Graph")
             with st.expander("🛠️ Graph Settings & Physics", expanded=False):
+                st.caption(
+                    f"Rendering is capped at {GRAPH_RENDER_NODE_LIMIT} nodes and "
+                    f"{GRAPH_RENDER_EDGE_LIMIT} links for browser stability on Streamlit Community Cloud."
+                )
                 c1, c2, c3 = st.columns(3)
                 min_edge_weight = c1.slider(
                     "Min Link Frequency", 2, 100, 3,
@@ -7369,6 +7505,14 @@ with tab_work:
                     "Sentiment: Colors by positive/negative.\n"
                     "Maturity Domain: Colors by which maturity domain the word belongs to (if 12-domain model is active)."
                 )
+                if (
+                    max_nodes_graph >= GRAPH_RENDER_NODE_LIMIT
+                    or max_edges_graph >= GRAPH_RENDER_EDGE_LIMIT
+                ):
+                    st.info(
+                        "You are at the graph safety cap. If rendering is slow or blank, "
+                        "lower Max Nodes or Max Links before rescanning the graph."
+                    )
 
             G = nx.DiGraph() if directed_graph else nx.Graph()
             sorted_connections = []
