@@ -5207,6 +5207,61 @@ def render_workflow_guide():
         Bottom line: start with the dashboard, inspect evidence, then drill into the deeper tools.
         """)
 
+def render_methods_explainer():
+    with st.expander("🔬 How Signal Foundry Works: Methods & Analytical Foundations", expanded=False):
+        st.markdown("""
+        Signal Foundry is a computational sensemaking tool. It does not simply create a word cloud or ask an AI model to summarize a document. It uses a layered analytical pipeline to surface patterns that a human analyst can inspect, challenge, and interpret.
+
+        ### 1. Text preparation
+
+        Uploaded files are converted into text, cleaned, tokenized, and filtered. Depending on the settings, the app can remove stopwords, chat artifacts, URLs, HTML, numbers, and other noise. This step matters because the quality of the scan depends heavily on the quality of the cleaned text.
+
+        ### 2. Frequency and distinctiveness
+
+        The app counts terms and phrases to show what appears most often. It also looks for what is distinctive, not just frequent. This helps separate background language from language that may carry stronger analytical signal.
+
+        ### 3. NPMI phrase scoring
+
+        Signal Foundry uses Normalized Pointwise Mutual Information (NPMI) to find word pairs that occur together more strongly than chance. This helps identify sticky phrases, technical terms, repeated frames, and concept pairs.
+
+        ### 4. TF-IDF keyphrase extraction
+
+        TF-IDF, or Term Frequency - Inverse Document Frequency, helps identify terms that are unusually specific to the uploaded corpus. This is useful for finding technical vocabulary, distinctive concepts, or terms that make this resource different from generic text.
+
+        ### 5. Topic modeling
+
+        For larger or chunked corpora, the app can use topic modeling methods such as Latent Dirichlet Allocation (LDA) and Non-Negative Matrix Factorization (NMF). These methods look for hidden topic structures across the text.
+
+        - **LDA** treats topics as probability distributions over words.
+        - **NMF** factorizes the document-term matrix into additive topic components.
+
+        These methods do not "understand" the document. They surface candidate topic patterns for human review.
+
+        ### 6. Signal taxonomy and insight cards
+
+        Candidate signals are classified into analytical categories such as evidence, risk, tension, infrastructure, authority, need, constraint, motif, or boilerplate. The app then ranks insight cards using evidence strength, distinctiveness, confidence, semantic fit, phrase quality, and contextual role.
+
+        ### 7. Qualification and contrast detection
+
+        The app looks for cues that a phrase may be rejected, limited, qualified, or used only for comparison. For example, if a document says a concept is "not intended" or is used "only as an idealized comparison," the app can mark that signal as **Qualified / Contrast** rather than treating it as a direct central claim.
+
+        ### 8. Graph analysis
+
+        The network graph maps co-occurring terms as nodes and links. This can reveal clusters, central concepts, and relationships between ideas. Rendering is capped for browser stability, especially on Streamlit Community Cloud.
+
+        ### 9. Maturity scoring
+
+        When a maturity lens is selected, the app compares the text against domain vocabularies and staged maturity language. This is a directional language-based read, not a formal audit.
+
+        ### 10. AI Analyst layer
+
+        The optional AI Analyst receives a privacy-conscious analytical sketch: corpus statistics, top terms, Signal Compass, Resource Shape, insight cards, and related diagnostics. It does not need to read the full raw source document to provide a second-pass synthesis.
+
+        ### How to interpret the output
+
+        Signal Foundry surfaces evidence and analytical leads. It helps answer: what repeats, what stands out, what clusters, what appears missing, and what may be qualified or contested. The final interpretation still belongs to the human analyst.
+        """)
+
 def render_lit_case_study():
     # We use Unicode "Math Sans" characters to simulate bold/italics in the title
     # Italic 'another': 𝘢𝘯𝘰𝘵𝘩𝘦𝘳
