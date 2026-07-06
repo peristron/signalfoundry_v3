@@ -6368,6 +6368,7 @@ tab_work, tab_learn = st.tabs(["🚀 Analyze Documents", "📚 Guide & Use Cases
 # 1. THE LEARNING TAB (Guides, Examples)
 with tab_learn:
     render_workflow_guide()
+    render_methods_explainer()
     render_maturity_guide()
     render_use_cases()
     render_neurotech_case_study()
