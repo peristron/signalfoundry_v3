@@ -2970,6 +2970,21 @@ REQUIRED_SEMANTIC_MARKERS = {
     },
 }
 
+TECHNICAL_MECHANICS_TERMS = {
+    "body force", "force balance", "pressure gradient", "density ratio",
+    "angular momentum", "centrifugal acceleration", "centrifugal field",
+    "rotating frame", "barometric formula", "mean free path",
+    "thermalization", "diffusion", "viscous coupling", "boundary layer",
+    "path length", "optical depth", "absorption", "calibration",
+}
+
+TECHNICAL_MECHANICS_MARKERS = {
+    "force", "pressure", "density", "momentum", "acceleration", "gradient",
+    "thermal", "thermalization", "diffusion", "viscous", "optical",
+    "absorption", "calibration", "equilibrium", "molecular", "gas",
+    "fluid", "mechanics", "physics", "frame", "rotation", "rotating",
+}
+
 SIGNAL_TYPE_PRIORITY = {
     "Infrastructure / System Dependence": 1.35,
     "Risk / Failure Mode": 1.3,
@@ -3341,11 +3356,17 @@ def semantic_family_score(
     combined = f"{signal} {related_terms} {evidence_text}".lower()
     token_set = set(str(token).lower() for token in evidence_tokens)
     token_set.update(re.findall(r"[a-z][a-z-]+", combined))
+    technical_phrase_hit = any(term in combined for term in TECHNICAL_MECHANICS_TERMS)
+    technical_marker_hits = sum(1 for marker in TECHNICAL_MECHANICS_MARKERS if marker in token_set or marker in combined)
 
     scores = {}
     for pattern, family, score in PATTERN_BASED_FAMILY_RULES:
         if pattern.search(signal) or pattern.search(related_terms):
             scores[family] = max(scores.get(family, 0), score)
+
+    if technical_phrase_hit or technical_marker_hits >= 3:
+        scores["Evidence / Experiment"] = max(scores.get("Evidence / Experiment", 0), 7)
+        scores["Embodiment / Lived Experience"] = min(scores.get("Embodiment / Lived Experience", 0), 1)
 
     for family, config in SEMANTIC_SIGNAL_FAMILIES.items():
         score = scores.get(family, 0)
@@ -3362,6 +3383,10 @@ def semantic_family_score(
             elif marker_l in token_set or marker_l in combined:
                 score += 1
         scores[family] = score
+
+    if technical_phrase_hit or technical_marker_hits >= 3:
+        scores["Evidence / Experiment"] = max(scores.get("Evidence / Experiment", 0), 7)
+        scores["Embodiment / Lived Experience"] = min(scores.get("Embodiment / Lived Experience", 0), 1)
 
     best_family, best_score = max(scores.items(), key=lambda item: item[1])
     return best_family, best_score
@@ -3401,12 +3426,21 @@ def is_boilerplate_signal(signal: str, related_terms: str = "", evidence_text: s
 
 
 QUALIFICATION_CONTEXT_PATTERNS = [
-    re.compile(r"\bnot\s+(?:an?|the|intended|relevant|expected|designed|used|present|final)\b", re.IGNORECASE),
+    re.compile(r"\bnot\s+(?:an?|the|intended|relevant|expected|designed|used|present|final|intended\s+for)\b", re.IGNORECASE),
     re.compile(r"\bdoes\s+not\b|\bdo\s+not\b|\bdid\s+not\b|\bshould\s+not\b|\bwould\s+not\b|\bcannot\b|\bcan't\b", re.IGNORECASE),
     re.compile(r"\brather\s+than\b|\binstead\b|\bonly\s+as\b|\bnot\s+.*?\bbut\b", re.IGNORECASE),
     re.compile(r"\bshould\s+not\s+be\s+confused\s+with\b|\bnot\s+the\s+final\s+state\b", re.IGNORECASE),
     re.compile(r"\bupper[-\s]?bound\b|\bidealized\s+comparison\b|\bnot\s+intended\s+for\b", re.IGNORECASE),
     re.compile(r"\bno\s+(?:sustained|practical|measurable|meaningful|forbidden|evidence\s+of)\b", re.IGNORECASE),
+    re.compile(r"\b(?:misconception|not\s+central|not\s+relevant|not\s+applicable|outside\s+the\s+scope)\b", re.IGNORECASE),
+]
+
+QUALIFICATION_WINDOW_PATTERNS = [
+    re.compile(r"\bnot\s+(?:an?|the|intended|relevant|expected|designed|used|present|final|central|applicable)\b", re.IGNORECASE),
+    re.compile(r"\bdoes\s+not\b|\bdo\s+not\b|\bshould\s+not\b|\bcannot\b|\bcan't\b", re.IGNORECASE),
+    re.compile(r"\brather\s+than\b|\binstead\b|\bonly\s+as\b|\bnot\s+.*?\bbut\b", re.IGNORECASE),
+    re.compile(r"\bupper[-\s]?bound\b|\bidealized\s+comparison\b|\bmisconception\b", re.IGNORECASE),
+    re.compile(r"\bnot\s+intended\s+for\b|\boutside\s+the\s+scope\b|\bnot\s+the\s+purpose\b", re.IGNORECASE),
 ]
 
 
@@ -3427,7 +3461,12 @@ def signal_terms_present(sentence: str, signal_terms: List[str]) -> bool:
     return matches >= max(1, min(2, len(meaningful_terms)))
 
 
-def qualification_context_profile(signal: str, evidence_text: str) -> Dict[str, Any]:
+def qualification_context_profile(
+    signal: str,
+    evidence_text: str,
+    related_terms: str = "",
+    support_context: str = "",
+) -> Dict[str, Any]:
     """
     Detects whether a signal is being asserted directly or used mainly as a
     contrast, rejected idea, limitation, or idealized comparison.
@@ -3442,25 +3481,30 @@ def qualification_context_profile(signal: str, evidence_text: str) -> Dict[str, 
         "Qualification Cue Count": 0,
         "Qualification Evidence": "",
     }
-    if not signal_terms or not evidence_text:
+    full_context = " ".join(str(part) for part in [evidence_text, related_terms, support_context] if part)
+    if not signal_terms or not full_context:
         return profile
 
     sentences = [
         sentence.strip()
-        for sentence in re.split(r"(?<=[.!?])\s+", str(evidence_text))
+        for sentence in re.split(r"(?<=[.!?])\s+", str(full_context))
         if sentence.strip()
     ]
     candidate_sentences = [
-        sentence for sentence in sentences
+        (idx, sentence) for idx, sentence in enumerate(sentences)
         if signal_terms_present(sentence, signal_terms)
     ]
     if not candidate_sentences:
         return profile
 
     qualified = []
-    for sentence in candidate_sentences:
-        if any(pattern.search(sentence) for pattern in QUALIFICATION_CONTEXT_PATTERNS):
-            qualified.append(sentence)
+    for idx, sentence in candidate_sentences:
+        window = " ".join(sentences[max(0, idx - 1): min(len(sentences), idx + 2)])
+        if (
+            any(pattern.search(sentence) for pattern in QUALIFICATION_CONTEXT_PATTERNS)
+            or any(pattern.search(window) for pattern in QUALIFICATION_WINDOW_PATTERNS)
+        ):
+            qualified.append(window)
 
     if not qualified:
         return profile
@@ -3877,6 +3921,11 @@ def build_insight_cards(
     theme_df = build_theme_evidence_cards(scanner, counts, top_n=max(top_n * 4, 30))
     rows = []
     used = set()
+    global_evidence_context = " ".join(
+        str(item.get("excerpt", ""))
+        for item in getattr(scanner, "evidence_docs", [])[:MAX_EVIDENCE_DOCS]
+        if item.get("excerpt")
+    )
 
     for _, row in theme_df.iterrows():
         signal = str(row.get("Theme Evidence", "")).strip()
@@ -3914,7 +3963,12 @@ def build_insight_cards(
             support=support,
             distinctiveness=distinctiveness,
         )
-        context_profile = qualification_context_profile(signal, evidence_text)
+        context_profile = qualification_context_profile(
+            signal,
+            evidence_text,
+            related_terms=related_terms,
+            support_context=global_evidence_context,
+        )
         contextual_role = context_profile["Contextual Role"]
         if contextual_role == "Qualified / Contrast":
             phrase_quality = max(0, phrase_quality - 18)
