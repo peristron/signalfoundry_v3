@@ -121,6 +121,25 @@ CHAT_ARTIFACT_RE = re.compile(
     r"|\[[^\]]+\]",
     flags=re.IGNORECASE
 )
+TRANSCRIPT_TIMESTAMP_RE = re.compile(
+    r"^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?(?:\s*-->\s*(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)?\s*$"
+)
+TRANSCRIPT_CUE_RE = re.compile(r"^\s*(?:WEBVTT|NOTE|Kind:\s+captions|Language:\s+\w+|\d+)\s*$", re.IGNORECASE)
+TRANSCRIPT_INLINE_TIMESTAMP_RE = re.compile(
+    r"\b(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?\b"
+)
+TRANSCRIPT_SYSTEM_LINE_RE = re.compile(
+    r"\b(?:recording\s+(?:started|stopped)|transcript\s+(?:started|stopped|generated)|"
+    r"live\s+transcript|closed\s+caption|captions?\s+(?:started|stopped)|"
+    r"joined\s+the\s+meeting|left\s+the\s+meeting|waiting\s+room)\b",
+    re.IGNORECASE,
+)
+TRANSCRIPT_FILLER_PHRASES = {
+    "yes", "yeah", "yep", "no", "nope", "ok", "okay", "right", "alright",
+    "all right", "thanks", "thank you", "mm", "mmm", "mmhmm", "mm-hmm",
+    "uh huh", "uh-huh", "sure", "great", "cool", "perfect", "got it",
+    "you know", "i mean", "um", "uh", "hmm",
+}
 URL_EMAIL_RE = re.compile(
     r'(?:https?://|www\.)[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+[^\s]*'
     r'|(?:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',
@@ -159,6 +178,9 @@ class CleaningConfig:
     remove_urls: bool = True
     unescape: bool = True
     phrase_pattern: Optional[re.Pattern] = None
+    transcript_cleanup: bool = False
+    strip_speaker_labels: bool = True
+    drop_short_transcript_fillers: bool = True
 
 @dataclass
 class ProcessingConfig:
@@ -1817,6 +1839,64 @@ def collect_speaker_labels_from_file(
     return collect_speaker_labels_from_text(text, max_lines=max_lines)
 
 
+def is_short_transcript_filler(text: str) -> bool:
+    """
+    Detects very short meeting acknowledgments that usually add noise when
+    analyzing transcripts. This is intentionally conservative and opt-in.
+    """
+    if not isinstance(text, str):
+        return True
+    normalized = " ".join(
+        re.sub(r"[^a-zA-Z'\-\s]", " ", text).lower().split()
+    )
+    if not normalized:
+        return True
+    if normalized in TRANSCRIPT_FILLER_PHRASES:
+        return True
+    words = normalized.split()
+    if len(words) <= 2 and all(word in TRANSCRIPT_FILLER_PHRASES for word in words):
+        return True
+    return False
+
+
+def normalize_transcript_artifacts(text: str, config: CleaningConfig) -> str:
+    """
+    Opt-in transcript cleanup for Zoom/VTT/SRT/plain-text meeting exports.
+
+    Removes cue/timestamp/system lines, optionally strips speaker labels, and
+    optionally drops very short filler utterances before entity extraction and
+    tokenization. Non-transcript workflows are unchanged unless the user turns
+    transcript cleanup on.
+    """
+    if not isinstance(text, str):
+        return ""
+
+    cleaned_lines = []
+    for raw_line in str(text).splitlines() or [str(text)]:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if TRANSCRIPT_CUE_RE.match(line) or TRANSCRIPT_TIMESTAMP_RE.match(line):
+            continue
+        if TRANSCRIPT_SYSTEM_LINE_RE.search(line):
+            continue
+
+        line = TRANSCRIPT_INLINE_TIMESTAMP_RE.sub(" ", line)
+        if config.strip_speaker_labels:
+            _speaker, utterance = extract_speaker_label(line)
+            if _speaker:
+                line = utterance
+
+        line = " ".join(line.split())
+        if not line:
+            continue
+        if config.drop_short_transcript_fillers and is_short_transcript_filler(line):
+            continue
+        cleaned_lines.append(line)
+
+    return " ".join(cleaned_lines).strip()
+
+
 @lru_cache(maxsize=1)
 def collect_maturity_vocabulary() -> Set[str]:
     """
@@ -2286,6 +2366,11 @@ def process_chunk_iter(
         if _excluded_speakers:
             speaker, _utterance = extract_speaker_label(raw_text)
             if speaker_is_excluded(speaker, _excluded_speakers, _partial_speaker_match):
+                continue
+
+        if clean_conf.transcript_cleanup:
+            raw_text = normalize_transcript_artifacts(raw_text, clean_conf)
+            if not raw_text:
                 continue
         
         # entities (Before lowercase)
@@ -4946,11 +5031,12 @@ def render_workflow_guide():
         Best for most users.
 
         1. Open **Workspace**.
-        2. Upload one or more files, paste text/URLs, or load an offline sketch.
-        3. Keep **Clear previous data** enabled unless intentionally combining scans.
-        4. Leave default cleaning settings on for the first pass.
-        5. Click the scan button.
-        6. Start with the **Executive Signal Dashboard**, then read **Signal Compass** and **Resource Shape** in the Insight Engine.
+        2. If using a Zoom or meeting transcript, enable **Transcript Cleanup Mode** in the sidebar before scanning.
+        3. Upload one or more files, paste text/URLs, or load an offline sketch.
+        4. Keep **Clear previous data** enabled unless intentionally combining scans.
+        5. Leave default cleaning settings on for the first pass.
+        6. Click the scan button.
+        7. Start with the **Executive Signal Dashboard**, then read **Signal Compass** and **Resource Shape** in the Insight Engine.
 
         #### Path B - Structured Files
 
@@ -4966,7 +5052,19 @@ def render_workflow_guide():
 
         Date columns can power temporal drift and trend analysis.
 
-        #### Path C - Offline Harvester
+        #### Path C - Meeting Transcripts
+
+        Best for Zoom, VTT, SRT, Teams, Otter, or plain-text transcript exports.
+
+        1. Enable **Transcript Cleanup Mode** in the sidebar.
+        2. Keep **Strip speaker labels from analyzed text** enabled unless speaker names are substantively important.
+        3. Keep **Drop very short filler utterances** enabled for first-pass analysis.
+        4. Use **Transcript Speaker Exclusion** if a speaker, bot, or system label should be removed entirely.
+        5. Use **Rows per Doc** around 1-5 for meeting-style transcripts.
+
+        This helps remove repeated timestamps, caption cues, speaker labels, system messages, and short filler acknowledgments before they distort entities, top terms, and insight cards.
+
+        #### Path D - Offline Harvester
 
         Best for very large files or secure environments.
 
@@ -5205,61 +5303,6 @@ def render_workflow_guide():
         9. Test AI Analyst last.
 
         Bottom line: start with the dashboard, inspect evidence, then drill into the deeper tools.
-        """)
-
-def render_methods_explainer():
-    with st.expander("🔬 How Signal Foundry Works: Methods & Analytical Foundations", expanded=False):
-        st.markdown("""
-        Signal Foundry is a computational sensemaking tool. It does not simply create a word cloud or ask an AI model to summarize a document. It uses a layered analytical pipeline to surface patterns that a human analyst can inspect, challenge, and interpret.
-
-        ### 1. Text preparation
-
-        Uploaded files are converted into text, cleaned, tokenized, and filtered. Depending on the settings, the app can remove stopwords, chat artifacts, URLs, HTML, numbers, and other noise. This step matters because the quality of the scan depends heavily on the quality of the cleaned text.
-
-        ### 2. Frequency and distinctiveness
-
-        The app counts terms and phrases to show what appears most often. It also looks for what is distinctive, not just frequent. This helps separate background language from language that may carry stronger analytical signal.
-
-        ### 3. NPMI phrase scoring
-
-        Signal Foundry uses Normalized Pointwise Mutual Information (NPMI) to find word pairs that occur together more strongly than chance. This helps identify sticky phrases, technical terms, repeated frames, and concept pairs.
-
-        ### 4. TF-IDF keyphrase extraction
-
-        TF-IDF, or Term Frequency - Inverse Document Frequency, helps identify terms that are unusually specific to the uploaded corpus. This is useful for finding technical vocabulary, distinctive concepts, or terms that make this resource different from generic text.
-
-        ### 5. Topic modeling
-
-        For larger or chunked corpora, the app can use topic modeling methods such as Latent Dirichlet Allocation (LDA) and Non-Negative Matrix Factorization (NMF). These methods look for hidden topic structures across the text.
-
-        - **LDA** treats topics as probability distributions over words.
-        - **NMF** factorizes the document-term matrix into additive topic components.
-
-        These methods do not "understand" the document. They surface candidate topic patterns for human review.
-
-        ### 6. Signal taxonomy and insight cards
-
-        Candidate signals are classified into analytical categories such as evidence, risk, tension, infrastructure, authority, need, constraint, motif, or boilerplate. The app then ranks insight cards using evidence strength, distinctiveness, confidence, semantic fit, phrase quality, and contextual role.
-
-        ### 7. Qualification and contrast detection
-
-        The app looks for cues that a phrase may be rejected, limited, qualified, or used only for comparison. For example, if a document says a concept is "not intended" or is used "only as an idealized comparison," the app can mark that signal as **Qualified / Contrast** rather than treating it as a direct central claim.
-
-        ### 8. Graph analysis
-
-        The network graph maps co-occurring terms as nodes and links. This can reveal clusters, central concepts, and relationships between ideas. Rendering is capped for browser stability, especially on Streamlit Community Cloud.
-
-        ### 9. Maturity scoring
-
-        When a maturity lens is selected, the app compares the text against domain vocabularies and staged maturity language. This is a directional language-based read, not a formal audit.
-
-        ### 10. AI Analyst layer
-
-        The optional AI Analyst receives a privacy-conscious analytical sketch: corpus statistics, top terms, Signal Compass, Resource Shape, insight cards, and related diagnostics. It does not need to read the full raw source document to provide a second-pass synthesis.
-
-        ### How to interpret the output
-
-        Signal Foundry surfaces evidence and analytical leads. It helps answer: what repeats, what stands out, what clusters, what appears missing, and what may be qualified or contested. The final interpretation still belongs to the human analyst.
         """)
 
 def render_lit_case_study():
@@ -5612,6 +5655,11 @@ def render_analyst_help():
         * **Fix:** These are corpus artifacts. Add them to **Stopwords** and rescan.
         * **Fix:** For transcripts, keep **Remove Chat Artifacts** enabled.
 
+        **Symptom: Speaker names or timestamps dominate a meeting transcript**
+        * **Fix:** Enable **Transcript Cleanup Mode** before scanning.
+        * **Fix:** Keep **Strip speaker labels from analyzed text** enabled so names before colons do not become false entities.
+        * **Fix:** Use **Transcript Speaker Exclusion** to remove an entire bot, host, or irrelevant participant.
+
         **Symptom: Trend charts are empty**
         * **Fix:** Re-scan after selecting the correct date column in the file config panel.
         * **Fix:** Check whether source dates are parseable, such as 2025-01-31, 01/31/2025, or Jan 31 2025.
@@ -5799,6 +5847,7 @@ def build_calibration_export_zip(
     insight_df: pd.DataFrame,
     text_stats: Dict[str, Any],
     proc_conf: ProcessingConfig,
+    clean_conf: CleaningConfig,
     export_mode: str,
     run_label: str = "",
     expected_terms_raw: str = "",
@@ -5845,6 +5894,9 @@ def build_calibration_export_zip(
             "drop_integers": proc_conf.drop_integers,
             "compute_bigrams": proc_conf.compute_bigrams,
             "use_lemmatization": proc_conf.use_lemmatization,
+            "transcript_cleanup": clean_conf.transcript_cleanup,
+            "strip_speaker_labels": clean_conf.strip_speaker_labels,
+            "drop_short_transcript_fillers": clean_conf.drop_short_transcript_fillers,
             "stopword_count": len(proc_conf.stopwords),
             "excluded_speaker_count": len(proc_conf.excluded_speakers),
             "partial_speaker_match": proc_conf.partial_speaker_match,
@@ -5909,6 +5961,7 @@ def render_calibration_export_panel(
     insight_df: pd.DataFrame,
     text_stats: Dict[str, Any],
     proc_conf: ProcessingConfig,
+    clean_conf: CleaningConfig,
     expected_terms_raw: str = "",
     key_prefix: str = "calibration_export",
 ):
@@ -5947,6 +6000,7 @@ def render_calibration_export_panel(
             insight_df=insight_df,
             text_stats=text_stats,
             proc_conf=proc_conf,
+            clean_conf=clean_conf,
             export_mode=export_mode,
             run_label=run_label,
             expected_terms_raw=expected_terms_raw,
@@ -6129,11 +6183,51 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     
     st.markdown("**Cleaning**")
+    transcript_cleanup_enabled = st.checkbox(
+        "Transcript Cleanup Mode",
+        False,
+        help=(
+            "Opt-in cleanup for Zoom/VTT/SRT/plain-text meeting transcripts. "
+            "Removes timestamp/cue/system artifacts and can strip speaker labels before analysis."
+        ),
+    )
+    strip_transcript_speakers = True
+    drop_transcript_fillers = True
+    if transcript_cleanup_enabled:
+        with st.expander("Transcript cleanup options", expanded=False):
+            st.caption(
+                "Use this for meeting transcripts where repeated names, timestamps, "
+                "caption cues, and filler acknowledgments would otherwise dominate the scan."
+            )
+            strip_transcript_speakers = st.checkbox(
+                "Strip speaker labels from analyzed text",
+                True,
+                help=(
+                    "Removes labels such as 'Omar Akhtar:' before tokenization and entity extraction. "
+                    "Use speaker exclusions below if you want to remove an entire speaker's utterances."
+                ),
+            )
+            drop_transcript_fillers = st.checkbox(
+                "Drop very short filler utterances",
+                True,
+                help=(
+                    "Removes short standalone acknowledgments such as 'yeah', 'okay', "
+                    "'thanks', and 'mm-hmm'. Longer utterances are preserved."
+                ),
+            )
+            st.info(
+                "Transcript Cleanup Mode only changes scans while this option is enabled. "
+                "Leave it off for ordinary PDFs, reports, papers, and structured files."
+            )
+
     clean_conf = CleaningConfig(
         remove_chat=st.checkbox("Remove Chat Artifacts", True, help="Strips metadata like timestamps, usernames (e.g., <@U1234>), and system messages from logs/transcripts to focus purely on the conversation content."),
         remove_html=st.checkbox("Remove HTML", True, help="Removes HTML tags such as <div>, <br>, and other markup from exported web or LMS content."),
         remove_urls=st.checkbox("Remove URLs", True, help="Removes links and email addresses so they do not pollute the vocabulary and graph."),
-        unescape=st.checkbox("Unescape HTML", True, help="Converts coded entities (e.g., &amp ; amp;, &amp ; quot;) back into readable symbols (&, \").")
+        unescape=st.checkbox("Unescape HTML", True, help="Converts coded entities (e.g., &amp ; amp;, &amp ; quot;) back into readable symbols (&, \")."),
+        transcript_cleanup=transcript_cleanup_enabled,
+        strip_speaker_labels=strip_transcript_speakers,
+        drop_short_transcript_fillers=drop_transcript_fillers,
     )
     
     st.markdown("**Processing**")
@@ -6368,7 +6462,6 @@ tab_work, tab_learn = st.tabs(["🚀 Analyze Documents", "📚 Guide & Use Cases
 # 1. THE LEARNING TAB (Guides, Examples)
 with tab_learn:
     render_workflow_guide()
-    render_methods_explainer()
     render_maturity_guide()
     render_use_cases()
     render_neurotech_case_study()
@@ -6695,6 +6788,7 @@ with tab_work:
                 insight_df=insight_df,
                 text_stats=text_stats,
                 proc_conf=proc_conf,
+                clean_conf=clean_conf,
                 expected_terms_raw=st.session_state.get("insight_expected_terms", ""),
                 key_prefix="calibration_export_quick_access",
             )
@@ -6865,6 +6959,7 @@ with tab_work:
                         insight_df=insight_df,
                         text_stats=text_stats,
                         proc_conf=proc_conf,
+                        clean_conf=clean_conf,
                         expected_terms_raw=insight_expected_terms,
                         key_prefix="calibration_export_tab",
                     )
