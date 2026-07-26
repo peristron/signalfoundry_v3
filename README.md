@@ -1,303 +1,815 @@
+<div align="center">
+
 # Signal Foundry
 
-Signal Foundry is a Streamlit-based text analysis and computational sensemaking app. It turns unstructured or semi-structured text into interpretable signals: recurring terms, distinctive phrases, hidden topics, evidence cards, entity patterns, relationship graphs, maturity indicators, and optional AI-assisted synthesis.
+### Computational sensemaking for complex, unstructured text
+
+Turn reports, transcripts, datasets, presentations, public webpages, and large offline text collections into interpretable signals—without treating automated analysis as a substitute for human judgment.
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/built%20with-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-active%20development-orange)](#known-limitations)
+
+[Overview](#overview) · [Capabilities](#capabilities) · [Quick start](#quick-start) · [Privacy](#privacy-and-data-handling) · [Methods](#analytical-foundations) · [Limitations](#known-limitations)
+
+</div>
+
+---
+
+## Overview
+
+Signal Foundry is a Streamlit-based text-analysis and computational-sensemaking application. It converts unstructured or semi-structured text into an inspectable analytical sketch containing recurring terms, distinctive vocabulary, associated phrases, hidden topics, entity-like names, relationship graphs, maturity indicators, evidence cards, and optional AI-assisted synthesis.
+
+The application is designed to help a human analyst understand the shape of a resource or corpus:
+
+- What appears often?
+- What is distinctive rather than merely frequent?
+- Which ideas travel together?
+- What themes, tensions, risks, constraints, or opportunities may be emerging?
+- Which expected concepts are present, weak, or absent?
+- Which excerpts deserve closer human review?
+
+> [!IMPORTANT]
+> Signal Foundry is an exploratory analysis and evidence-organization tool. Its outputs are structured leads—not verified facts, final conclusions, or substitutes for domain expertise.
+
+## Why Signal Foundry?
+
+Text-heavy analysis often begins with material that is too large, inconsistent, repetitive, or poorly structured for a quick human review. Signal Foundry provides a layered first pass that helps an analyst move from raw text to:
+
+1. a high-level corpus fingerprint;
+2. ranked statistical and heuristic signals;
+3. representative evidence for human inspection;
+4. optional comparisons across groups or time;
+5. downloadable artifacts for further analysis or calibration.
+
+It is especially useful for:
+
+- meeting and interview transcripts;
+- research papers and reports;
+- strategy, policy, and planning documents;
+- support cases, survey responses, and feedback collections;
+- client notes and implementation records;
+- CSV-based text datasets;
+- large or sensitive datasets processed through the offline harvester.
+
+## Capabilities
+
+### Supported inputs
+
+| Input | Current support | Important notes |
+|---|---:|---|
+| CSV | Supported | Select one or more text columns and optional date/category columns. Batch mode uses the first detected column as a safe default. |
+| Excel `.xlsx` | Experimental | Sheet/header controls are present, but named text/date/category selection is not fully implemented. Convert to CSV for reliable structured analysis. |
+| Plain text `.txt` | Supported | Common UTF-8, UTF-8 BOM, and UTF-16 text/transcript encodings are detected. |
+| WebVTT `.vtt` | Supported | Transcript timestamps, cues, speaker labels, and selected speakers can be cleaned or excluded. |
+| PDF `.pdf` | Supported for embedded text | Image-only or scanned PDFs require OCR before upload. |
+| PowerPoint `.pptx` | Supported for text frames | Extracts text from slide shapes; embedded images and charts are not interpreted. |
+| JSON / JSONL `.json` | Supported | Line-delimited objects can be scanned using an optional text-field key. |
+| Harvester sketch `.json` | Supported | Must match the Signal Foundry sketch schema. Evidence excerpts may be present unless the sketch was created with `--no-evidence`. |
+| Pasted text | Supported | Useful for notes, excerpts, and ad hoc analysis. |
+| Public webpage URLs | Basic support | Best for static, publicly accessible pages. JavaScript-rendered, authenticated, restricted, or paywalled pages may not work. |
+
+> [!NOTE]
+> The current upload control does not accept `.srt`, `.xls`, or `.xlsm`. Convert these files to a supported format before scanning.
+
+### Analysis outputs
+
+| Output | What it helps answer |
+|---|---|
+| Executive Signal Dashboard | What is the corpus size, evidence coverage, signal mix, and recommended next step? |
+| Signal Compass | Which broad analytical forces have the strongest directional pull? |
+| Resource Shape | What does the combination of top-ranked signals suggest about the corpus? |
+| Supporting Insight Cards | What evidence, confidence, context, and follow-up question support each analytical lead? |
+| Word Cloud and Corpus Statistics | Which terms dominate, and does the cleaned vocabulary look sensible? |
+| Theme Evidence Cards | Which associated phrases and distinctive terms may represent useful themes? |
+| Frequency vs. Distinctiveness Quadrant | Which terms are core signals, common backdrop, niche signals, or low-evidence terms? |
+| Hypothesis / Concept Check | Are analyst-supplied expected concepts present, weak, or absent? |
+| Contrastive Analysis | Which terms distinguish one category or stakeholder group from another? |
+| Temporal Drift and Trends | Which terms are rising, fading, or changing over time? |
+| Entity-like Extraction | Which capitalized names, acronyms, identifiers, or named concepts recur? |
+| TF-IDF-style Term Distinctiveness | Which terms are unusually specific across the application’s synthetic document chunks? |
+| LDA or NMF Topic Modeling | Which latent word groups may exist beneath the visible term counts? |
+| Network Graph | Which terms co-occur, which concepts are central, and where do clusters form? |
+| Optional Sentiment View | How do positive and negative term signals distribute under the selected thresholds? |
+| Maturity Assessment | Which maturity-stage vocabularies appear in source material that fits a selected lens? |
+| Optional AI Analyst | What higher-level synthesis can be produced from the derived statistical context brief? |
 
-The app is designed to help a human analyst quickly understand the shape of a resource or corpus. It does not replace expert judgment. Instead, it provides a structured first pass: what appears often, what stands out, what clusters together, what may be missing, what is qualified or contested, and what deserves closer human review.
+### Exports
+
+Depending on the active analysis, Signal Foundry can produce:
 
-## What Signal Foundry Does
+- CSV files for insight cards, themes, expected concepts, comparisons, trends, key terms, phrases, entities, and related tables;
+- combined word-cloud PNG images;
+- GEXF network files for tools such as Gephi;
+- hybrid heatmap/QR signature PNG files;
+- maturity-assessment JSON snapshots;
+- password-gated calibration ZIP packages containing CSV, JSON, and Markdown diagnostics.
 
-Signal Foundry can process text from sources such as:
+## How it works
 
-- PDF files
-- TXT files
-- CSV and Excel files
-- PowerPoint files
-- VTT or transcript-style files
-- pasted text
-- URLs
-- offline harvester sketches
+```mermaid
+flowchart TD
+    A["Files, URLs, text, or sketch"] --> B["Cleaning and normalization"]
+    B --> C["Streaming counts and document chunks"]
+    C --> D["Terms, phrases, entities, topics, and graph"]
+    D --> E["Signal taxonomy and ranking"]
+    E --> F["Dashboard, evidence cards, and exports"]
+    F --> G["Optional AI interpretation"]
+```
 
-After scanning, it produces several layers of analysis:
+Raw source text is cleaned and transformed into counts, document-frequency information, adjacent-term relationships, entity-like candidates, retained evidence snippets, and optional metadata groupings. The Insight Engine then combines statistical signals with heuristic classification and ranking to produce an analyst-facing map.
 
-- an Executive Signal Dashboard
-- Signal Compass directional read
-- Resource Shape synthesis
-- Supporting Insight Cards
-- Word Cloud and corpus statistics
-- theme evidence cards
-- frequency vs. distinctiveness quadrant
-- keyphrase extraction
-- named-entity-style extraction
-- topic modeling
-- network graph analysis
-- temporal and category comparisons when metadata exists
-- maturity scoring when a matching maturity lens is selected
-- optional AI Analyst output based on a statistical context brief
-- calibration export packages for repeatable testing
+## Recommended workflow
 
-## High-Level Purpose
+1. Decide whether the next scan should clear the existing session or add to it.
+2. Configure cleaning, stopwords, transcript handling, and document granularity.
+3. Upload files, paste text or URLs, or load an offline sketch.
+4. For structured CSV data, select text, date, and category columns.
+5. Run the scan.
+6. Start with the Executive Signal Dashboard.
+7. Read Signal Compass and Resource Shape.
+8. Inspect Supporting Insight Cards and their representative evidence.
+9. Review the Word Cloud and top terms for boilerplate or cleaning problems.
+10. Use Themes, Entities, Keyphrases, Trends, and Graphs as needed.
+11. Use a maturity lens only when the source material matches its intended domain.
+12. Use the AI Analyst after the visible outputs look reasonable.
+13. Use Calibration Export when comparing runs or tuning the analysis.
 
-Signal Foundry is meant for exploratory analysis of text-heavy materials where the user wants to ask:
+> [!CAUTION]
+> New scans are additive unless **Clear previous data** is enabled. Re-scanning the same source in additive mode can duplicate its contribution.
 
-- What is this resource mostly about?
-- What language is repeated?
-- What language is distinctive rather than merely frequent?
-- What ideas travel together?
-- What themes, tensions, risks, or constraints are emerging?
-- What concepts are missing or weak?
-- Which excerpts should a human inspect first?
-- What is the overall shape of the resource?
+## Quick start
 
-It is especially useful for reports, transcripts, research papers, policy documents, client notes, strategy documents, feedback collections, and other messy text sources.
+### Requirements
 
-## Analytical Foundations
+- Python 3.10 or newer
+- `pip`
+- the dependencies listed in `requirements.txt`
 
-Signal Foundry uses a layered analytical pipeline. The goal is to combine familiar natural language processing methods with practical interpretive heuristics.
+### 1. Clone the repository
 
-### 1. Text Cleaning and Normalization
+```bash
+git clone https://github.com/peristron/signalfoundry_v3.git
+cd signalfoundry_v3
+```
 
-The app first converts uploaded material into analyzable text. Depending on settings, it can remove chat artifacts, strip URLs or HTML, drop numbers, preserve or remove hyphens, apply stopwords, and optionally lemmatize terms.
+### 2. Create a virtual environment
 
-This step matters because every later output depends on the quality of the cleaned text. If boilerplate, headers, footers, or transcript artifacts dominate the scan, the downstream outputs will also be distorted.
+<details>
+<summary><strong>Windows PowerShell</strong></summary>
 
-### 2. Tokenization and Frequency Analysis
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
 
-The app breaks text into tokens, counts word frequencies, and tracks document or row-level units. This provides the basic statistical foundation for the word cloud, top terms, lexical diversity, and several downstream analyses.
+</details>
 
-Frequency answers a simple but important question:
+<details>
+<summary><strong>macOS or Linux</strong></summary>
 
-> What appears most often?
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
 
-Frequency alone is not enough, but it is a useful baseline.
+</details>
 
-### 3. Phrase Significance with NPMI
+### 3. Install dependencies
 
-Signal Foundry uses Normalized Pointwise Mutual Information, or NPMI, to find word pairs that appear together more strongly than chance.
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-This helps distinguish meaningful phrases from ordinary adjacent words. For example, a phrase that appears together repeatedly and unusually may be more analytically useful than two words that are merely common on their own.
+### 4. Configure optional secrets
 
-NPMI helps answer:
+Create `.streamlit/secrets.toml` if you want to unlock the AI Analyst or calibration tools:
 
-> Which phrases are unusually sticky?
+```toml
+# Password that unlocks AI and calibration features.
+auth_password = "replace-with-a-strong-password"
 
-### 4. Keyphrase Extraction with TF-IDF
+# Add only the providers you intend to use.
+deepseek_api_key = "replace-with-your-key"
+xai_api_key = "replace-with-your-key"
+openai_api_key = "replace-with-your-key"
+```
 
-Signal Foundry uses TF-IDF, or Term Frequency - Inverse Document Frequency, to identify terms that are distinctive to the uploaded corpus.
+> [!WARNING]
+> Never commit real API keys or passwords. Keep `.streamlit/secrets.toml` out of version control.
 
-TF-IDF does not simply reward common words. It rewards words that are important in this corpus relative to how broadly they appear across document chunks.
+Core scanning and most analytical views do not require authentication. The password unlocks provider settings, the AI Analyst, and calibration exports; it is not a full application access-control layer.
 
-TF-IDF helps answer:
+### 5. Run the application
 
-> What makes this resource specific?
+```bash
+streamlit run mainapp.py
+```
 
-### 5. Topic Modeling with LDA and NMF
+Streamlit will print a local URL, normally `http://localhost:8501`.
 
-For larger or chunked corpora, Signal Foundry can use topic modeling methods such as:
+### Basic validation
 
-- Latent Dirichlet Allocation (LDA)
-- Non-Negative Matrix Factorization (NMF)
+After a significant code change:
 
-These methods attempt to identify hidden topic structures in a collection of documents or text chunks.
+```bash
+python -m py_compile mainapp.py harvester.py text_processor.py
+streamlit run mainapp.py
+```
 
-LDA treats topics as probability distributions over words. It is useful for discovering broad latent themes in larger mixed corpora.
+Then perform one direct scan and one offline-harvester scan.
 
-NMF factorizes a document-term matrix into additive components. It often works well for cleaner corpora where topics are more compact and interpretable.
+## Usage paths
 
-Topic modeling helps answer:
+### Path A: Standard interactive scan
 
-> What hidden topic groups may be present beneath the surface?
+Best for most users.
 
-### 6. Signal Taxonomy
+1. Open **Analyze Documents**.
+2. Configure cleaning and scan settings in the sidebar.
+3. Upload one or more supported files, paste text, or paste public URLs.
+4. Expand the configuration panel for any structured CSV file.
+5. Start the individual or batch scan.
+6. Review the dashboard in the recommended reading order.
 
-Signal Foundry classifies candidate signals into analytical categories such as:
+### Path B: Structured CSV analysis
 
-- Evidence / Experiment
-- Risk / Concern
-- Risk / Failure Mode
-- Blocker / Constraint
-- Need / Request
-- Decision / Tradeoff
-- Infrastructure / System Dependence
-- Institutional Structure / Social Design
-- Authority / Legitimacy
-- Contradiction / Tension
-- Motif / Image Pattern
-- Source / Boilerplate
-- Low-Specificity Signal
-- Absence / Weak Signal
+Use this path when the dataset has meaningful columns.
 
-These categories are heuristic. They help organize interpretation, but they are not final truth labels.
+1. Upload a CSV.
+2. Expand its configuration panel.
+3. Select one or more text columns.
+4. Optionally select:
+   - a date column for trends and temporal drift;
+   - a category column for group comparisons.
+5. Scan the file individually.
 
-### 7. Interpretive Lift and Insight Cards
+For dependable named-column analysis, CSV is currently recommended over Excel.
 
-The app ranks candidate insight cards using a directional score called Interpretive Lift.
+### Path C: Meeting transcripts
 
-Interpretive Lift considers factors such as:
+1. Enable **Transcript Cleanup Mode** before scanning.
+2. Keep **Strip speaker labels from analyzed text** enabled unless names are analytically important.
+3. Keep **Drop very short filler utterances** enabled for a first pass.
+4. Select detected speakers—or enter labels manually—when complete utterances should be excluded.
+5. Leave partial speaker matching disabled unless broader matching is intentional.
+6. Start with a **Rows per Doc** value between 1 and 5.
 
-- evidence strength
-- phrase distinctiveness
-- confidence
-- semantic fit
-- phrase quality
-- signal role
-- whether the signal appears to be direct, qualified, or contrastive
+Transcript cleanup can remove or reduce:
 
-The purpose is to bring the most useful analytical leads toward the top, while still preserving supporting or diagnostic signals for review.
+- timestamps and caption cues;
+- transcript system messages;
+- speaker prefixes;
+- short acknowledgements and filler utterances;
+- selected speakers’ complete contributions.
 
-### 8. Qualification and Contrast Detection
+### Path D: Offline harvester
 
-Signal Foundry includes a calibration layer that tries to distinguish direct claims from qualified or contrastive claims.
+Use the harvester for large datasets or environments where raw source material should remain outside the hosted app.
 
-For example, a document may mention a concept in order to reject it, limit it, compare against it, or clarify that it is not the main point.
+Basic example:
 
-The app looks for contextual cues such as:
+```bash
+python harvester.py --input data.csv --col text --output sketch.json
+```
 
-- not
-- does not
-- rather than
-- instead
-- only as comparison
-- upper bound
-- not intended for
-- should not be confused with
+Include temporal and category summaries:
 
-This helps prevent the app from over-promoting phrases that appear in the text but are not actually central claims.
+```bash
+python harvester.py --input data.csv --col text --date-col date --category-col team --output sketch.json
+```
 
-### 9. Signal Compass and Resource Shape
+Exclude representative excerpts:
 
-The Signal Compass gives a directional read of the resource. It summarizes which analytical forces are pulling the text most strongly.
+```bash
+python harvester.py --input data.csv --col text --output sketch.json --no-evidence
+```
 
-Resource Shape then turns top-ranked signals into a short synthesis of what the corpus appears to be about.
+Upload the resulting JSON under **Load Offline Analysis (Harvester)**.
 
-These views are designed to be read first. They are not final conclusions. They are a map for human review.
+> [!IMPORTANT]
+> Offline processing does not automatically make a sketch anonymous. Without `--no-evidence`, the sketch may contain representative source excerpts. Counts, phrases, entities, categories, and other derived metadata may also reveal sensitive information.
 
-### 10. Network Graph Analysis
+### Path E: Data Refinery
 
-Signal Foundry can build a network graph from co-occurring terms. Nodes represent terms. Edges represent relationships between terms that appear together.
+The Data Refinery can split a very large CSV into smaller ZIP-packaged CSV files.
 
-The graph can help reveal:
+Use it only after sanitizing the source. It is a file-preparation utility, not an anonymization system.
 
-- central concepts
-- clusters of related terms
-- dense or disconnected topics
-- possible conceptual structure
+## Reading the results
 
-Graph rendering is capped for browser stability on Streamlit Community Cloud. Large or dense corpora may be better reviewed through exported graph files.
+### Recommended reading order
 
-### 11. Maturity Scoring
+1. **Executive Signal Dashboard**  
+   Confirm corpus size, evidence coverage, strongest signals, and suggested next steps.
 
-When selected, maturity models compare the text against domain vocabularies and staged capability language.
+2. **Signal Compass**  
+   Review the main directional pull of the material.
 
-Maturity scoring is directional. It measures language present in the source material, not actual organizational reality.
+3. **Resource Shape**  
+   Read the short synthesis assembled from the strongest signal families.
 
-It is most useful when the source material fits the selected maturity lens.
+4. **Supporting Insight Cards**  
+   Inspect signal type, contextual role, confidence, ranking rationale, representative evidence, interpretation, and follow-up question.
 
-### 12. AI Analyst
+5. **Word Cloud & Stats**  
+   Check whether boilerplate, headers, names, or transcript artifacts dominate.
 
-The optional AI Analyst does not receive the full raw source document by default. Instead, it receives a privacy-conscious context brief built from:
+6. **Themes, Entities, Keyphrases, Trends, and Graphs**  
+   Use deeper views to test and refine the first-pass interpretation.
 
-- corpus statistics
-- top terms and phrases
-- entities
-- Signal Compass
-- Resource Shape
-- insight cards
-- signal roles
-- graph/community summary when available
-- maturity results when available
+7. **Maturity**  
+   Apply only when the source material is suitable for the selected lens.
 
-This design lets the AI help interpret the analytical sketch without requiring the full document text to be sent to the model.
+8. **AI Analyst**  
+   Use last, after checking that the derived context is sensible.
 
-The AI Analyst is best used after reviewing the visible dashboard and evidence cards.
+### Interpretation boundaries
 
-## Privacy and Data Handling
+Signal Foundry can help surface:
 
-Signal Foundry is designed for analysis of user-uploaded materials in a Streamlit app environment.
-
-Important guidance:
-
-- Do not upload sensitive or confidential material unless you are authorized to do so.
-- For Streamlit Community Cloud deployments, anonymize source material where appropriate.
-- The AI Analyst uses a summarized context brief rather than full raw documents by default.
-- Full diagnostic exports may include evidence excerpts and should be shared carefully.
-- Safe calibration exports omit representative evidence from the insight-card CSV.
-
-## Calibration Export
-
-The admin-only calibration export creates a ZIP package containing files such as:
-
-- insight cards
-- Resource Shape summary
-- Resource Shape weighting diagnostics
-- signal type distribution
-- signal role distribution
-- top terms
-- top bigrams
-- NPMI phrases
-- TF-IDF keyphrases
-- evidence snippets when full export is selected
-- run summary metadata
-
-This is useful for:
-
-- comparing repeated runs
-- tuning stopwords
-- testing calibration changes
-- documenting analysis snapshots
-- auditing why a signal ranked where it did
-
-## Recommended Workflow
-
-1. Configure stopwords, cleaning, and scan settings in the sidebar.
-2. Upload or paste source material in Workspace.
-3. Scan the material.
-4. Start with the Executive Signal Dashboard.
-5. Read Signal Compass and Resource Shape.
-6. Inspect Supporting Insight Cards.
-7. Check Word Cloud and top terms for noise or boilerplate.
-8. Review Themes, Keyphrases, Entities, and Graphs as needed.
-9. Use Maturity only when the source fits the selected maturity lens.
-10. Use the AI Analyst last, after the visible outputs look reasonable.
-11. Use Calibration Export when testing or comparing runs.
-
-## Interpreting Results Safely
-
-Signal Foundry is best understood as a signal amplifier and evidence organizer.
-
-It can help surface:
-
-- repeated language
-- distinctive phrases
-- hidden topics
-- relationships between terms
-- possible tensions
-- missing or weak concepts
-- qualified or rejected claims
-- candidate evidence for human review
+- repeated and distinctive language;
+- associated words and phrases;
+- candidate themes and latent topics;
+- entity-like names and identifiers;
+- possible needs, tensions, risks, constraints, and opportunities;
+- weak or missing expected concepts;
+- representative evidence for review.
 
 It cannot guarantee:
 
-- author intent
-- factual truth
-- causal explanation
-- completeness
-- legal, medical, scientific, or policy correctness
+- author intent;
+- factual truth;
+- causal explanation;
+- completeness;
+- unbiased classification;
+- legal, medical, scientific, policy, or organizational correctness.
 
-Treat the outputs as structured leads. Human interpretation remains essential.
+## Privacy and data handling
 
-## Deployment Notes
+Signal Foundry is designed to minimize unnecessary raw-text exposure, but it should not be treated as an anonymization or secure-data-classification system.
 
-Signal Foundry is designed to run as a Streamlit app, including on Streamlit Community Cloud.
+### Application processing
 
-General deployment expectations:
+- The application processes uploaded content in the active Streamlit session.
+- The code does not intentionally write ordinary uploaded source documents to durable application storage.
+- The Data Refinery temporarily writes CSV chunks while building its downloadable ZIP.
+- Up to 10,000 representative evidence snippets may be retained in session memory.
+- Each retained evidence excerpt is capped at approximately 700 characters.
+- Session behaviour and infrastructure-level logging or retention remain subject to the hosting environment.
 
-- Python 3.10 or higher is recommended.
-- Required packages should be listed in `requirements.txt`.
-- API keys should be stored in Streamlit secrets, not hardcoded.
-- Large files may run into memory or processing constraints on free hosted environments.
-- Graph rendering is intentionally capped for browser stability.
+### AI Analyst boundary
 
-## Suggested Short Description
+The AI Analyst does **not** receive the complete raw source documents or the representative evidence excerpts used in the visible insight cards.
 
-Signal Foundry is a computational sensemaking tool for unstructured text. It combines NLP, statistical phrase scoring, TF-IDF, topic modeling, graph analysis, signal taxonomy, maturity scoring, and optional AI synthesis to help analysts surface the shape, themes, tensions, and evidence patterns within complex text resources.
+It receives a derived context brief that may include:
+
+- corpus statistics;
+- top terms and bigrams;
+- entity-like names;
+- Signal Compass values;
+- Resource Shape synthesis;
+- signal labels, roles, confidence, and interpretations;
+- graph/community summaries;
+- maturity results;
+- the user’s question.
+
+The exact context can be inspected in **What the AI can see** before requesting a response.
+
+> [!CAUTION]
+> Derived metadata is not necessarily anonymous. Names, organizations, technical terms, categories, and sensitive concepts can remain visible in the AI context brief.
+
+### Calibration exports
+
+Two password-gated export modes are available:
+
+- **Safe calibration export:** excludes representative evidence from the insight-card CSV.
+- **Full diagnostic export:** includes evidence snippets and should be handled as potentially sensitive source-derived material.
+
+Always inspect exported files before sharing them.
+
+## Maturity models
+
+Maturity scoring compares cleaned terms and adjacent phrases against configurable domain vocabularies.
+
+| Lens | Structure | Intended use |
+|---|---|---|
+| EdTech & LMS Operations | Five levels | Directional review of LMS use, integration, analytics, governance, and optimization language |
+| General Business Operations | Five levels | Directional review from reactive practices through standardized, measured, and optimizing operations |
+| Policy & Governance | Five levels | Directional review from enforcement/reactive language through evidence-based and systemic governance |
+| TAM Maturity Model | Twelve domains, three tiers | Multi-domain administrative maturity review with domain radar, details, exports, and longitudinal snapshots |
+
+> [!IMPORTANT]
+> Maturity results measure vocabulary present in the supplied material. They do not independently verify actual organizational capability, performance, adoption, or maturity.
+
+Cleaning choices affect maturity results. Domain vocabulary is protected from generic stopword removal, but custom stopwords, source selection, document granularity, and corpus composition can still influence scoring.
+
+## Analytical foundations
+
+<details>
+<summary><strong>1. Cleaning, normalization, and tokenization</strong></summary>
+
+Signal Foundry converts uploaded material into analyzable text and then applies configurable cleaning. Options include:
+
+- chat-artifact removal;
+- HTML removal and entity unescaping;
+- URL and email removal;
+- integer removal;
+- minimum token length;
+- hyphen and apostrophe handling;
+- generic and custom stopwords;
+- optional lemmatization;
+- transcript-specific cleanup and speaker exclusion.
+
+All downstream outputs depend on the resulting cleaned token stream.
+
+</details>
+
+<details>
+<summary><strong>2. Frequency and corpus statistics</strong></summary>
+
+The application counts cleaned terms and tracks document-like units assembled according to **Rows per Doc**. These counts support the word cloud, top-term tables, lexical-diversity estimate, graph, maturity models, and several ranking features.
+
+Frequency answers:
+
+> What appears most often after cleaning?
+
+</details>
+
+<details>
+<summary><strong>3. Phrase association with NPMI</strong></summary>
+
+Normalized Pointwise Mutual Information estimates how strongly adjacent word pairs are associated relative to their individual frequencies. A minimum observed frequency is applied to reduce extremely rare pairings.
+
+NPMI is used directionally to answer:
+
+> Which adjacent terms appear together more strongly than their separate frequencies would suggest?
+
+NPMI should be interpreted alongside support counts. A high association score with limited evidence is not automatically a central theme.
+
+</details>
+
+<details>
+<summary><strong>4. TF-IDF-style term distinctiveness</strong></summary>
+
+Signal Foundry uses a simplified sketch-oriented term score based on:
+
+- global term frequency;
+- document frequency across synthetic document chunks;
+- an inverse-document-frequency adjustment.
+
+Only terms appearing in more than one document chunk are considered. This is a custom directional implementation rather than a full phrase-extraction pipeline.
+
+It helps answer:
+
+> Which terms are comparatively distinctive across the current document chunks?
+
+</details>
+
+<details>
+<summary><strong>5. Topic modeling with LDA and NMF</strong></summary>
+
+When enough synthetic documents and vocabulary are available, Signal Foundry can fit:
+
+- **Latent Dirichlet Allocation (LDA)** for probabilistic topic mixtures;
+- **Non-Negative Matrix Factorization (NMF)** for additive topic components.
+
+NMF is often easier to interpret for shorter, cleaner records. LDA can be useful for longer or more mixed document chunks. Topic labels are represented by their strongest terms and require human interpretation.
+
+</details>
+
+<details>
+<summary><strong>6. Entity-like extraction</strong></summary>
+
+Entity extraction is regex-based rather than a trained named-entity-recognition model. It identifies patterns such as:
+
+- uppercase acronyms;
+- capitalized multi-word names;
+- capitalized identifiers containing numbers or hyphens.
+
+Results may include false positives, headings, or source artifacts. Treat the output as named-entity-style candidates for review.
+
+</details>
+
+<details>
+<summary><strong>7. Signal taxonomy and semantic families</strong></summary>
+
+The Insight Engine uses several related heuristic layers.
+
+Primary signal types include:
+
+- Pain / Friction
+- Need / Request
+- Blocker / Constraint
+- Aspiration / Opportunity
+- Risk / Concern
+- Decision / Tradeoff
+- Contradiction / Tension
+
+Additional semantic families can identify patterns such as:
+
+- Infrastructure / System Dependence
+- Embodiment / Lived Experience
+- Isolation / Disconnection
+- Authority / Legitimacy
+- Evidence / Experiment
+- Disease / Hazard
+- Intervention / Control Method
+- Public Health / Institutional Response
+- Risk / Failure Mode
+- Standardization / Loss of Difference
+- Institutional Structure / Social Design
+- Motif / Image Pattern
+
+These classifications are heuristic organizational aids, not definitive semantic labels.
+
+</details>
+
+<details>
+<summary><strong>8. Interpretive Lift, signal roles, and evidence cards</strong></summary>
+
+Interpretive Lift is a custom directional ranking heuristic. It considers ingredients such as:
+
+- evidence strength;
+- distinctiveness;
+- semantic fit;
+- phrase quality;
+- contextual role;
+- signal type;
+- confidence;
+- qualification or contrast cues.
+
+Signals may then be assigned roles such as:
+
+- Core Insight
+- Supporting Signal
+- Qualified / Contrast
+- Supporting Motif
+- Context / Reference
+- Low-Specificity
+
+The score is intended to make ranking decisions inspectable. It is not a validated statistical probability or universal measure of importance.
+
+</details>
+
+<details>
+<summary><strong>9. Qualification and contrast detection</strong></summary>
+
+The application looks for contextual cues indicating that a concept may be rejected, limited, contrasted, or used only as comparison. Examples include “not,” “rather than,” “instead,” and similar qualifying constructions.
+
+This layer reduces—but cannot eliminate—the risk of treating a mentioned idea as an endorsed or central claim.
+
+</details>
+
+<details>
+<summary><strong>10. Network analysis</strong></summary>
+
+The graph is built from term co-occurrence relationships:
+
+- nodes represent terms;
+- edges represent observed relationships;
+- edge weights reflect relationship frequency;
+- graph controls can filter nodes and links;
+- GEXF export supports deeper analysis outside the browser.
+
+In-browser rendering is capped at 90 nodes and 180 edges for stability.
+
+</details>
+
+<details>
+<summary><strong>11. Optional sentiment inference</strong></summary>
+
+When enabled, VADER assigns sentiment scores to terms and bigrams. Signal Foundry then uses positive and negative evidence counts in a beta-distribution update to display a directional positive-rate estimate and interval.
+
+This is best suited to opinion-rich text. It is less informative for neutral technical corpora, and term-level sentiment can miss negation, irony, and sentence context.
+
+</details>
+
+<details>
+<summary><strong>12. Optional AI synthesis</strong></summary>
+
+The AI Analyst sends the derived context brief through an OpenAI-compatible chat-completions interface. The current application offers provider settings for DeepSeek, xAI, and OpenAI.
+
+The AI is instructed to:
+
+- use only the supplied context brief;
+- distinguish evidence from interpretation;
+- avoid claiming to have read the raw source documents;
+- acknowledge when the available context cannot answer a question.
+
+AI output remains probabilistic and requires human review.
+
+</details>
+
+## Calibration exports
+
+Calibration exports are intended for repeated testing, tuning, and transparent review of the ranking process.
+
+A package can include:
+
+- run settings and summary metadata;
+- insight cards;
+- Resource Shape summary and signal families;
+- Resource Shape weighting diagnostics;
+- signal-type and signal-role distributions;
+- corpus statistics;
+- top terms and bigrams;
+- NPMI tables;
+- TF-IDF-style term tables;
+- entities;
+- evidence snippets when full export is selected;
+- explanatory calibration notes.
+
+Useful applications include:
+
+- comparing repeat scans;
+- reviewing why a signal ranked highly;
+- tuning stopwords and cleaning settings;
+- documenting test snapshots;
+- checking the effect of calibration changes.
+
+## Known limitations
+
+- Signal Foundry is primarily English-oriented.
+- Excel support is experimental; CSV is recommended for structured named-column analysis.
+- PDF extraction does not perform OCR.
+- URL extraction does not execute JavaScript or bypass authentication and access controls.
+- Entity extraction is pattern-based and is not equivalent to a trained NER model.
+- TF-IDF is a simplified, sketch-oriented unigram score.
+- Topic models produce candidate word groups, not authoritative theme labels.
+- Sentiment is primarily term-level and can miss sentence context.
+- Maturity models detect matching language, not verified real-world capability.
+- Evidence snippets are capped at 10,000 retained records and approximately 700 characters each.
+- Topic-document retention is capped to protect memory.
+- Browser graph rendering is capped at 90 nodes and 180 links.
+- The application checks for files larger than 1,024 MB, but the hosting platform may impose a lower effective upload or memory limit.
+- Hosted sessions can reset, expire, or restart; download important outputs before leaving the session.
+- Cost estimates are indicative and may not reflect current provider pricing.
+- Some analysis settings reset existing data to maintain internal consistency.
+
+## Troubleshooting
+
+<details>
+<summary><strong>The application starts, but a feature is unavailable</strong></summary>
+
+Open **System Health** in the sidebar. Optional features depend on packages such as NLTK, SciPy, scikit-learn, Beautiful Soup, `pypdf`, `python-pptx`, `qrcode`, and `openpyxl`.
+
+Confirm that installation completed successfully:
+
+```bash
+pip install -r requirements.txt
+```
+
+</details>
+
+<details>
+<summary><strong>An Excel scan is empty or incomplete</strong></summary>
+
+Convert the workbook to CSV and scan it individually. The current CSV path provides reliable text-, date-, and category-column selection; the Excel path remains experimental.
+
+</details>
+
+<details>
+<summary><strong>A PDF produces little or no text</strong></summary>
+
+The PDF may be scanned or image-based. Apply OCR before uploading it. Password-protected or malformed PDFs may also fail extraction.
+
+</details>
+
+<details>
+<summary><strong>A webpage URL returns no usable text</strong></summary>
+
+Confirm that the page:
+
+- is public;
+- uses `http` or `https`;
+- does not require authentication;
+- contains server-rendered text;
+- is not primarily JavaScript-rendered.
+
+If needed, copy the relevant text and use **Manual Text Paste**.
+
+</details>
+
+<details>
+<summary><strong>Top terms are dominated by boilerplate or names</strong></summary>
+
+- Add recurring artifacts to custom stopwords.
+- Enable transcript cleanup for meeting exports.
+- Exclude irrelevant speakers.
+- Confirm that the correct CSV text column was selected.
+- Re-scan with **Clear previous data** enabled.
+
+</details>
+
+<details>
+<summary><strong>Topic modeling is unavailable or unhelpful</strong></summary>
+
+- Scan more document-like units.
+- Adjust **Rows per Doc**.
+- Try NMF for shorter records and LDA for longer mixed documents.
+- Reduce the requested number of topics if topics are repetitive.
+- Improve cleaning and stopwords before interpreting the results.
+
+</details>
+
+<details>
+<summary><strong>The graph is empty, disconnected, or unreadable</strong></summary>
+
+- Lower the minimum link frequency to reveal weaker connections.
+- Raise it to remove noise.
+- Reduce maximum nodes and links.
+- Adjust repulsion or edge length.
+- Disable physics if browser rendering becomes unstable.
+- Export GEXF for deeper graph analysis.
+
+</details>
+
+<details>
+<summary><strong>Trends or comparisons do not appear</strong></summary>
+
+Scan a CSV individually and select valid date and category columns. Trends require parseable dates; contrastive analysis requires at least two categories.
+
+</details>
+
+<details>
+<summary><strong>The AI Analyst is unavailable</strong></summary>
+
+Confirm that:
+
+- `auth_password` is configured;
+- you have unlocked the AI section;
+- the selected provider has a valid API key;
+- the configured model is available to that provider account.
+
+Core analytics do not require AI access.
+
+</details>
+
+## Repository structure
+
+```text
+signalfoundry_v3/
+├── .devcontainer/          # Development-container configuration
+├── .streamlit/             # Streamlit configuration
+├── DEPLOYMENT_NOTES.md     # Deployment-specific guidance
+├── LICENSE                 # MIT License
+├── README.md               # Project documentation
+├── harvester.py            # Offline large-dataset preprocessing
+├── mainapp.py              # Main Streamlit application
+├── requirements.txt        # Python dependencies
+└── text_processor.py       # Shared text-processing utilities
+```
+
+Do not commit `.streamlit/secrets.toml` or any file containing real credentials.
+
+## Development guidance
+
+Recommended checks after significant changes:
+
+- compile the Python entry points;
+- start the Streamlit application from a clean environment;
+- scan a representative CSV or TXT file;
+- test a text-based PDF and PowerPoint;
+- test transcript cleanup and speaker exclusion;
+- test category and date analysis with a structured CSV;
+- generate at least one CSV, PNG, GEXF, JSON, and calibration ZIP export;
+- test offline sketch generation and loading;
+- test both additive and clear-on-scan behaviour;
+- test authenticated and unauthenticated views;
+- inspect the AI-context preview before testing each provider.
+
+When the application stabilizes further, useful engineering improvements include:
+
+- completing and testing structured Excel column selection;
+- adding explicit SRT support;
+- adding OCR as an optional preprocessing path;
+- expanding automated reader and analysis tests;
+- normalizing analytical calculations across every view;
+- separating the large Streamlit entry point into focused reader, analysis, visualization, configuration, and UI modules.
+
+## Contributing
+
+Issues and focused pull requests are welcome. When reporting a problem, include:
+
+- the input format;
+- the relevant settings;
+- whether the scan was individual or batch;
+- whether data was cleared or added;
+- the expected and observed result;
+- a sanitized example when possible.
+
+Do not include confidential source material, API keys, passwords, or private evidence excerpts in issues.
+
+## License
+
+Signal Foundry is available under the [MIT License](LICENSE).
+
+## Maintainer note
+
+Signal Foundry is built around a simple principle:
+
+> Preserve raw text only when needed, convert it into inspectable mathematical signal as early as practical, and make every output understandable enough for a human analyst to challenge.
 
