@@ -2064,7 +2064,9 @@ def read_rows_vtt(
     excluded_speakers: Optional[Set[str]] = None,
     partial_speaker_match: bool = False
 ) -> Iterable[Tuple[str, None, None]]:
-    # robust VTT reader that yields tuples
+    # Robust line-oriented transcript reader for VTT, SRT, and transcript-style
+    # text. Timestamp ranges, numeric cue identifiers, and WEBVTT headers are
+    # ignored before the remaining utterances are processed.
     def _iter_lines(enc):
         bio = io.BytesIO(file_bytes)
         with io.TextIOWrapper(bio, encoding=enc, errors="replace", newline=None) as wrapper:
@@ -2089,27 +2091,46 @@ def read_rows_vtt(
 
 def read_rows_pdf(file_bytes: bytes) -> Iterable[Tuple[str, None, None]]:
     if pypdf is None: 
-        st.error("pypdf missing")
+        st.error("PDF extraction is unavailable because pypdf is not installed.")
         return
     bio = io.BytesIO(file_bytes)
     try:
         reader = pypdf.PdfReader(bio)
+        extracted_pages = 0
         for page in reader.pages:
             text = page.extract_text()
-            if text: yield (text, None, None)
-    except Exception: yield ("", None, None)
+            if text and text.strip():
+                extracted_pages += 1
+                yield (text, None, None)
+        if extracted_pages == 0:
+            st.warning(
+                "No embedded text was found in this PDF. "
+                "Image-only or scanned PDFs require OCR before upload."
+            )
+    except Exception as exc:
+        st.warning(f"PDF text extraction failed: {exc}")
 
 def read_rows_pptx(file_bytes: bytes) -> Iterable[Tuple[str, None, None]]:
-    if pptx is None: return
+    if pptx is None:
+        st.error("PowerPoint extraction is unavailable because python-pptx is not installed.")
+        return
     bio = io.BytesIO(file_bytes)
     try:
         prs = pptx.Presentation(bio)
+        extracted_shapes = 0
         for slide in prs.slides:
             for shape in slide.shapes:
                 if hasattr(shape, "has_text_frame") and shape.has_text_frame:
-                    if shape.text: yield (shape.text, None, None)
-    except Exception:
-        yield ("", None, None)
+                    if shape.text and shape.text.strip():
+                        extracted_shapes += 1
+                        yield (shape.text, None, None)
+        if extracted_shapes == 0:
+            st.warning(
+                "No text frames were found in this PowerPoint. "
+                "Text embedded only in images, charts, or other objects is not extracted."
+            )
+    except Exception as exc:
+        st.warning(f"PowerPoint text extraction failed: {exc}")
 
 def read_rows_json(file_bytes: bytes, selected_key: str = None) -> Iterable[Tuple[str, None, None]]:
     bio = io.BytesIO(file_bytes)
@@ -2183,43 +2204,56 @@ def iter_excel_structured(
     cat_col: Optional[str],
     join_with: str
 ) -> Iterable[Tuple[str, Optional[str], Optional[str]]]:
-    if openpyxl is None: return
+    if openpyxl is None:
+        raise ReaderError("Excel extraction is unavailable because openpyxl is not installed.")
     bio = io.BytesIO(file_bytes)
     wb = openpyxl.load_workbook(bio, read_only=True, data_only=True)
-    ws = wb[sheet_name]
-    rows_iter = ws.iter_rows(values_only=True)
-    
-    first = next(rows_iter, None)
-    if first is None: 
+    try:
+        if sheet_name not in wb.sheetnames:
+            raise ValidationError(f"Excel sheet not found: {sheet_name}")
+
+        ws = wb[sheet_name]
+        rows_iter = ws.iter_rows(values_only=True)
+        first = next(rows_iter, None)
+        if first is None:
+            return
+
+        if has_header:
+            header = make_unique_header(list(first))
+            name_to_idx = {n: i for i, n in enumerate(header)}
+        else:
+            name_to_idx = {f"col_{i}": i for i in range(len(first))}
+
+        text_idxs = [name_to_idx[n] for n in text_cols if n in name_to_idx]
+        date_idx = name_to_idx.get(date_col) if date_col else None
+        cat_idx = name_to_idx.get(cat_col) if cat_col else None
+
+        if not text_idxs:
+            raise ValidationError(
+                "No valid Excel text columns were selected. "
+                "Open the file configuration panel and choose at least one text column."
+            )
+
+        def row_to_tuple(row: Tuple[Any, ...]) -> Tuple[str, Optional[str], Optional[str]]:
+            txt_parts = [
+                str(row[i]) if (i < len(row) and row[i] is not None) else ""
+                for i in text_idxs
+            ]
+            d_val = row[date_idx] if (date_idx is not None and date_idx < len(row)) else None
+            c_val = row[cat_idx] if (cat_idx is not None and cat_idx < len(row)) else None
+            return (
+                join_with.join(txt_parts),
+                str(d_val) if d_val is not None else None,
+                str(c_val) if c_val is not None else None,
+            )
+
+        if not has_header:
+            yield row_to_tuple(first)
+
+        for row in rows_iter:
+            yield row_to_tuple(row)
+    finally:
         wb.close()
-        return
-
-    # header logic
-    if has_header:
-        header = make_unique_header(list(first))
-        name_to_idx = {n: i for i, n in enumerate(header)}
-        text_idxs = [name_to_idx[n] for n in text_cols if n in name_to_idx]
-        date_idx = name_to_idx.get(date_col) if date_col else None
-        cat_idx = name_to_idx.get(cat_col) if cat_col else None
-    else:
-        name_to_idx = {f"col_{i}": i for i in range(len(first))}
-        text_idxs = [name_to_idx[n] for n in text_cols if n in name_to_idx]
-        date_idx = name_to_idx.get(date_col) if date_col else None
-        cat_idx = name_to_idx.get(cat_col) if cat_col else None
-        
-        # Yield first row
-        txt_parts = [str(first[i]) if (i < len(first) and first[i] is not None) else "" for i in text_idxs]
-        d_val = first[date_idx] if (date_idx is not None and date_idx < len(first)) else None
-        c_val = first[cat_idx] if (cat_idx is not None and cat_idx < len(first)) else None
-        yield (join_with.join(txt_parts), str(d_val) if d_val else None, str(c_val) if c_val else None)
-
-    for row in rows_iter:
-        txt_parts = [str(row[i]) if (i < len(row) and row[i] is not None) else "" for i in text_idxs]
-        d_val = row[date_idx] if (date_idx is not None and date_idx < len(row)) else None
-        c_val = row[cat_idx] if (cat_idx is not None and cat_idx < len(row)) else None
-        yield (join_with.join(txt_parts), str(d_val) if d_val else None, str(c_val) if c_val else None)
-    
-    wb.close()
 
 def detect_csv_headers(file_bytes: bytes, delimiter: str = ",") -> List[str]:
     try:
@@ -2242,18 +2276,66 @@ def detect_csv_num_cols(file_bytes: bytes, delimiter: str = ",") -> int:
 def get_excel_sheetnames(file_bytes: bytes) -> List[str]:
     if openpyxl is None: return []
     bio = io.BytesIO(file_bytes)
-    wb = openpyxl.load_workbook(bio, read_only=True, data_only=True)
-    sheets = list(wb.sheetnames)
-    wb.close()
-    return sheets
+    try:
+        wb = openpyxl.load_workbook(bio, read_only=True, data_only=True)
+        try:
+            return list(wb.sheetnames)
+        finally:
+            wb.close()
+    except Exception:
+        return []
 
-def get_excel_preview(file_bytes: bytes, sheet_name: str, has_header: bool, rows: int = 5) -> pd.DataFrame:
-    if openpyxl is None: return pd.DataFrame()
+def get_excel_columns(file_bytes: bytes, sheet_name: str, has_header: bool) -> List[str]:
+    """Return column names that exactly match iter_excel_structured."""
+    if openpyxl is None or not sheet_name:
+        return []
     bio = io.BytesIO(file_bytes)
     try:
-        df = pd.read_excel(bio, sheet_name=sheet_name, header=0 if has_header else None, nrows=rows, engine='openpyxl')
-        if not has_header: df.columns = [f"col_{i}" for i in range(len(df.columns))]
-        return df
+        wb = openpyxl.load_workbook(bio, read_only=True, data_only=True)
+        try:
+            if sheet_name not in wb.sheetnames:
+                return []
+            first = next(wb[sheet_name].iter_rows(values_only=True), None)
+            if first is None:
+                return []
+            if has_header:
+                return make_unique_header(list(first))
+            return [f"col_{i}" for i in range(len(first))]
+        finally:
+            wb.close()
+    except Exception:
+        return []
+
+def get_excel_preview(file_bytes: bytes, sheet_name: str, has_header: bool, rows: int = 5) -> pd.DataFrame:
+    if openpyxl is None or not sheet_name:
+        return pd.DataFrame()
+    bio = io.BytesIO(file_bytes)
+    try:
+        wb = openpyxl.load_workbook(bio, read_only=True, data_only=True)
+        try:
+            if sheet_name not in wb.sheetnames:
+                return pd.DataFrame()
+            rows_iter = wb[sheet_name].iter_rows(values_only=True)
+            first = next(rows_iter, None)
+            if first is None:
+                return pd.DataFrame()
+
+            columns = (
+                make_unique_header(list(first))
+                if has_header
+                else [f"col_{i}" for i in range(len(first))]
+            )
+            data: List[Tuple[Any, ...]] = []
+            if not has_header:
+                data.append(first)
+            while len(data) < rows:
+                row = next(rows_iter, None)
+                if row is None:
+                    break
+                data.append(row)
+            return pd.DataFrame(data, columns=columns)
+        finally:
+            wb.close()
     except:
         return pd.DataFrame()
 
@@ -2485,34 +2567,75 @@ def calculate_text_stats(counts: Counter, total_rows: int) -> Dict:
         "Lexical Diversity": round(unique_tokens / total_tokens, 4) if total_tokens else 0
     }
 
-def calculate_npmi(bigram_counts: Counter, unigram_counts: Counter, total_words: int, min_freq: int = 3) -> pd.DataFrame:
+def calculate_npmi(
+    bigram_counts: Counter,
+    unigram_counts: Counter,
+    min_freq: int = NPMI_MIN_FREQ,
+) -> pd.DataFrame:
+    """
+    Calculate NPMI with one consistent token denominator in every view.
+
+    Earlier UI paths sometimes passed row count while others passed token
+    count, which made the same corpus produce different NPMI values. Deriving
+    total_tokens from the supplied unigram counter keeps auto-insights, theme
+    cards, calibration exports, and frequency tables aligned.
+    """
     results = []
-    if not bigram_counts: return pd.DataFrame(columns=["Bigram", "Count", "NPMI"])
-    epsilon = 1e-10 
+    empty = pd.DataFrame(columns=["Bigram", "Count", "NPMI"])
+    if not bigram_counts or not unigram_counts:
+        return empty
+
+    total_tokens = sum(unigram_counts.values())
+    if total_tokens <= 0:
+        return empty
+
+    epsilon = 1e-10
     for (w1, w2), freq in bigram_counts.items():
-        if freq < min_freq: continue
+        if freq < min_freq:
+            continue
         count_w1 = unigram_counts.get(w1, 0)
         count_w2 = unigram_counts.get(w2, 0)
-        if count_w1 == 0 or count_w2 == 0: continue
-        prob_bigram = freq / total_words
-        try: 
-            pmi = math.log(prob_bigram / ((count_w1 / total_words) * (count_w2 / total_words)))
-        except ValueError: continue
-        
+        if count_w1 <= 0 or count_w2 <= 0:
+            continue
+
+        prob_bigram = freq / total_tokens
+        prob_w1 = count_w1 / total_tokens
+        prob_w2 = count_w2 / total_tokens
+        if not (0 < prob_bigram <= 1 and 0 < prob_w1 <= 1 and 0 < prob_w2 <= 1):
+            continue
+
+        try:
+            pmi = math.log(prob_bigram / (prob_w1 * prob_w2))
+        except (ValueError, ZeroDivisionError):
+            continue
+
         log_prob_bigram = math.log(prob_bigram)
-        if abs(log_prob_bigram) < epsilon: npmi = 1.0
-        else: npmi = pmi / -log_prob_bigram
+        if abs(log_prob_bigram) < epsilon:
+            npmi = 1.0
+        else:
+            npmi = pmi / -log_prob_bigram
+
+        # Protect displays and exports from tiny floating-point excursions.
+        npmi = max(-1.0, min(1.0, npmi))
         results.append({"Bigram": f"{w1} {w2}", "Count": freq, "NPMI": round(npmi, 3)})
-        
+
     df = pd.DataFrame(results)
-    if df.empty: return pd.DataFrame(columns=["Bigram", "Count", "NPMI"])
-    return df.sort_values("NPMI", ascending=False)
+    if df.empty:
+        return empty
+    return df.sort_values(["NPMI", "Count", "Bigram"], ascending=[False, False, True])
 
 def calculate_tfidf(scanner: StreamScanner, top_n=50) -> pd.DataFrame:
-    # IDF = log(total docs / doc freq)
-    # TF (Global) = total count / total words (simplified for sketch)
+    """
+    Rank distinctive terms with a stable, smoothed TF-IDF-style score.
+
+    The application keeps global term frequency plus document frequency rather
+    than a full document-term matrix for this view. Smoothed IDF avoids the
+    negative values produced by log(total_docs / (1 + doc_freq)) when a term
+    appears in every retained document.
+    """
     total_docs = len(scanner.topic_docs)
-    if total_docs == 0: return pd.DataFrame()
+    if total_docs == 0:
+        return pd.DataFrame()
     
     results = []
     # Analyze only terms that appear in at least 2 docs to avoid noise
@@ -2521,13 +2644,22 @@ def calculate_tfidf(scanner: StreamScanner, top_n=50) -> pd.DataFrame:
     for term in candidates:
         tf = scanner.global_counts[term]
         df = scanner.doc_freqs[term]
-        idf = math.log(total_docs / (1 + df))
+        idf = math.log((1 + total_docs) / (1 + df)) + 1.0
         score = tf * idf
-        results.append({"Term": term, "TF (Count)": tf, "DF (Docs)": df, "Keyphrase Score": round(score, 2)})
-        
+        results.append({
+            "Term": term,
+            "TF (Count)": tf,
+            "DF (Docs)": df,
+            "Distinctiveness Score": round(score, 2),
+        })
+    
     df = pd.DataFrame(results)
-    if df.empty: return df
-    return df.sort_values("Keyphrase Score", ascending=False).head(top_n)
+    if df.empty:
+        return df
+    return df.sort_values(
+        ["Distinctiveness Score", "TF (Count)", "Term"],
+        ascending=[False, False, True],
+    ).head(top_n)
 
 def perform_topic_modeling(synthetic_docs: List[Counter], n_topics: int, model_type: str) -> Optional[List[Dict]]:
     if not DictVectorizer or len(synthetic_docs) < 1: return None
@@ -2575,11 +2707,10 @@ def perform_bayesian_sentiment_analysis(counts: Counter, sentiments: Dict[str, f
     }
 
 def build_theme_evidence_cards(scanner: StreamScanner, counts: Counter, top_n: int = 6) -> pd.DataFrame:
-    total_words = max(sum(counts.values()), 1)
-    npmi_df = calculate_npmi(scanner.global_bigrams, counts, total_words)
+    npmi_df = calculate_npmi(scanner.global_bigrams, counts)
     tfidf_df = calculate_tfidf(scanner, 100)
     tfidf_scores = {
-        row["Term"]: row["Keyphrase Score"]
+        row["Term"]: row["Distinctiveness Score"]
         for _, row in tfidf_df.iterrows()
     } if not tfidf_df.empty else {}
 
@@ -2632,7 +2763,7 @@ def build_theme_evidence_cards(scanner: StreamScanner, counts: Counter, top_n: i
 def build_signal_quadrant_df(scanner: StreamScanner, counts: Counter, top_n: int = 150) -> pd.DataFrame:
     tfidf_df = calculate_tfidf(scanner, top_n)
     tfidf_scores = {
-        row["Term"]: row["Keyphrase Score"]
+        row["Term"]: row["Distinctiveness Score"]
         for _, row in tfidf_df.iterrows()
     } if not tfidf_df.empty else {}
 
@@ -5004,8 +5135,8 @@ def render_workflow_guide():
         6. **Themes**  
            Inspect theme evidence cards, frequency-vs-distinctiveness, missing expected signals, category contrasts, and temporal drift.
 
-        7. **Keyphrases**  
-           Use TF-IDF to find words that are unusually specific to this corpus.
+        7. **Distinctive Terms**  
+           Use the TF-IDF-style view to find words that are unusually specific to this corpus.
 
         8. **Entities**  
            Check which people, organizations, systems, programs, places, or named concepts keep appearing.
@@ -5357,7 +5488,7 @@ def render_auto_insights(scanner, proc_conf):
     ent_str = ", ".join([f"**{e[0]}**" for e in top_ents]) if top_ents else "(No entities detected)"
     
     # Sticky Concepts (NPMI)
-    df_npmi = calculate_npmi(scanner.global_bigrams, scanner.global_counts, scanner.total_rows_processed)
+    df_npmi = calculate_npmi(scanner.global_bigrams, scanner.global_counts)
     top_npmi = df_npmi.head(3)["Bigram"].tolist() if not df_npmi.empty else []
     npmi_str = ", ".join([f"**{b}**" for b in top_npmi]) if top_npmi else "(No strong phrases found)"
     
@@ -5381,7 +5512,7 @@ def render_auto_insights(scanner, proc_conf):
         *   **The Result:** {npmi_str}
         *   **The Insight:** These words appear together mathematically more often than random chance, indicating they represent specific concepts (e.g. "Credit Card" vs "Red Card") rather than generic language.
 
-        ### 3. The "Technical Signal" (Keyphrases)
+        ### 3. The "Technical Signal" (Distinctive Terms)
         *   **The Question:** "What makes this specific document unique?"
         *   **The Signal:** TF-IDF (Inverse Document Frequency).
         *   **The Result:** {idf_str}
@@ -5404,7 +5535,7 @@ def render_neurotech_case_study():
         *   **The Result:** It surfaces **"Dua| Use"** and **"Cognitive Liberty."**
         *   **The Insight:** The strategic risk isn't just new weap0ns; it is civi|ian medica| techno|ogy being repurposed for mi|itary app|ications (Dua| Use), necessitating a legal/ethical framework (Liberty).
 
-        ### 2. The "Technical Signal" (Keyphrases Tab)
+        ### 2. The "Technical Signal" (Distinctive Terms Tab)
         *   **The Question:** "Do I need to worry about brain implants yet?"
         *   **The Signal:** TF-IDF filters out generic words to find unique technical terms.
         *   **The Result:** High scores for **"Non-invasive,"** **"Transcranial,"** and **"Wearable."**
@@ -5862,8 +5993,7 @@ def build_calibration_export_zip(
         insight_export_df = insight_export_df.drop(columns=["Representative Evidence"])
 
     shape_diagnostics_df = resource_shape_diagnostics_dataframe(insight_df)
-    total_words = max(sum(combined_counts.values()), 1)
-    npmi_df = calculate_npmi(scanner.global_bigrams, combined_counts, total_words)
+    npmi_df = calculate_npmi(scanner.global_bigrams, combined_counts)
     tfidf_df = calculate_tfidf(scanner, top_n=100)
     evidence_df = evidence_dataframe(scanner, include_excerpts)
 
@@ -5935,7 +6065,7 @@ def build_calibration_export_zip(
         zf.writestr("top_bigrams.csv", dataframe_to_csv_bytes(top_bigrams_dataframe(scanner.global_bigrams, 150)))
         zf.writestr("top_entities.csv", dataframe_to_csv_bytes(counter_dataframe(scanner.entity_counts, "Entity", top_n=100)))
         zf.writestr("npmi_phrases.csv", dataframe_to_csv_bytes(npmi_df.head(150)))
-        zf.writestr("tfidf_keyphrases.csv", dataframe_to_csv_bytes(tfidf_df.head(150)))
+        zf.writestr("tfidf_distinctive_terms.csv", dataframe_to_csv_bytes(tfidf_df.head(150)))
         zf.writestr("evidence_snippets.csv", dataframe_to_csv_bytes(evidence_df))
         zf.writestr(
             "README.txt",
@@ -6242,7 +6372,7 @@ with st.sidebar:
             4,
             help=(
                 "Filters out short tokens before analysis. This affects Word Cloud, "
-                "Keyphrases, Graphs, Topic Modeling, and Maturity scoring. Lower this "
+                "Distinctive Terms, Graphs, Topic Modeling, and Maturity scoring. Lower this "
                 "for acronyms and short jargon such as LTI, API, SSO, or AI. Raise it "
                 "only when short words are mostly noise."
             ),
@@ -6478,10 +6608,15 @@ with tab_work:
 
     workspace_files = st.file_uploader(
         "Upload files to scan",
-        type=["csv", "xlsx", "vtt", "txt", "json", "pdf", "pptx"],
+        type=["csv", "xlsx", "xlsm", "vtt", "srt", "txt", "json", "pdf", "pptx"],
         accept_multiple_files=True,
         key="workspace_scan_upload",
-        help="Upload one or more source files. CSV/XLSX are best for structured data, VTT/TXT for transcripts, PDF/PPTX for document decks, and JSON for line-delimited text or sketches.",
+        help=(
+            "Upload one or more source files. CSV/XLSX/XLSM support structured "
+            "column selection; VTT/SRT/TXT support transcript-style text; "
+            "PDF/PPTX extract embedded text; and JSON supports line-delimited "
+            "text records or Signal Foundry sketches."
+        ),
     )
 
     with st.expander("🌐 Quick Web / Text Paste", expanded=False):
@@ -6532,12 +6667,22 @@ with tab_work:
     # --scanning phase
     all_inputs = list(workspace_files) if workspace_files else []
     if url_input:
+        failed_urls = []
         for u in url_input.split('\n'):
-            if u.strip(): 
-                txt = fetch_url_content(u.strip())
-                if txt: 
-                    all_inputs.append(VirtualFile(f"url_{hash(u)}.txt", txt))
-                    time.sleep(URL_SCRAPE_RATE_LIMIT_SECONDS) # RATE LIMITING
+            clean_url = u.strip()
+            if clean_url:
+                txt = fetch_url_content(clean_url)
+                if txt:
+                    all_inputs.append(VirtualFile(f"url_{hash(clean_url)}.txt", txt))
+                else:
+                    failed_urls.append(clean_url)
+                time.sleep(URL_SCRAPE_RATE_LIMIT_SECONDS) # RATE LIMITING
+        if failed_urls:
+            st.warning(
+                f"Could not extract readable text from {len(failed_urls)} URL(s). "
+                "The page may be restricted, unavailable, or JavaScript-rendered. "
+                "If needed, paste the relevant text manually."
+            )
     if manual_input: all_inputs.append(VirtualFile("manual.txt", manual_input))
 
     if not all_inputs and st.session_state['sketch'].total_rows_processed == 0:
@@ -6601,10 +6746,23 @@ with tab_work:
                             #                                       [f"col_{i}" for i in range(20)], None, None, " ")
                             batch_iter = read_rows_raw_lines(f_bytes)
 
-                    elif fname.endswith(".xlsx"):
+                    elif fname.endswith((".xlsx", ".xlsm")):
                         sheets = get_excel_sheetnames(f_bytes)
                         if sheets:
-                            batch_iter = iter_excel_structured(f_bytes, sheets[0], True, ["col_0"], None, None, " ")
+                            excel_columns = get_excel_columns(f_bytes, sheets[0], True)
+                            if excel_columns:
+                                # Batch mode intentionally uses the first named
+                                # column. Scan individually when text/date/category
+                                # column selection is required.
+                                batch_iter = iter_excel_structured(
+                                    f_bytes,
+                                    sheets[0],
+                                    True,
+                                    [excel_columns[0]],
+                                    None,
+                                    None,
+                                    " ",
+                                )
 
                     elif fname.endswith(".pdf"):
                         batch_iter = read_rows_pdf(f_bytes)
@@ -6612,7 +6770,7 @@ with tab_work:
                     elif fname.endswith(".pptx"):
                         batch_iter = read_rows_pptx(f_bytes)
 
-                    elif fname.endswith(".vtt") or is_probably_vtt(f_bytes):
+                    elif fname.endswith((".vtt", ".srt")) or is_probably_vtt(f_bytes):
                         batch_iter = read_rows_vtt(
                             f_bytes,
                             excluded_speakers=proc_conf.excluded_speakers,
@@ -6646,7 +6804,7 @@ with tab_work:
                 is_csv = lower.endswith(".csv")
                 is_xlsx = lower.endswith((".xlsx", ".xlsm"))
                 is_json = lower.endswith(".json")
-                is_vtt = lower.endswith(".vtt") or is_probably_vtt(file_bytes)
+                is_transcript = lower.endswith((".vtt", ".srt")) or is_probably_vtt(file_bytes)
                 is_pdf = lower.endswith(".pdf")
                 is_pptx = lower.endswith(".pptx")
                 
@@ -6676,9 +6834,70 @@ with tab_work:
                             st.warning("No headers detected. Scanning as raw text.")
                     elif is_xlsx:
                         sheets = get_excel_sheetnames(file_bytes)
-                        scan_settings["sheet_name"] = st.selectbox("Sheet", sheets, key=f"sheet_{idx}", help="Choose the Excel sheet that contains the text you want to analyze.")
+                        if not sheets:
+                            st.error(
+                                "No readable Excel sheets were found. Confirm that "
+                                "the workbook is a valid XLSX/XLSM file and openpyxl is installed."
+                            )
+                        else:
+                            scan_settings["sheet_name"] = st.selectbox(
+                                "Sheet",
+                                sheets,
+                                key=f"sheet_{idx}",
+                                help="Choose the Excel sheet that contains the text you want to analyze.",
+                            )
                         if scan_settings["sheet_name"]:
-                             scan_settings["has_header"] = st.checkbox("Has Header Row", True, key=f"xls_head_{idx}", help="Leave this on if the first row contains column names rather than actual text data.")
+                            scan_settings["has_header"] = st.checkbox(
+                                "Has Header Row",
+                                True,
+                                key=f"xls_head_{idx}",
+                                help="Leave this on if the first row contains column names rather than actual text data.",
+                            )
+                            excel_columns = get_excel_columns(
+                                file_bytes,
+                                scan_settings["sheet_name"],
+                                scan_settings["has_header"],
+                            )
+                            if excel_columns:
+                                scan_settings["text_cols"] = st.multiselect(
+                                    "Text Columns",
+                                    excel_columns,
+                                    default=[excel_columns[0]],
+                                    key=f"xls_txt_{idx}",
+                                    help="Choose the column or columns that contain the main text you want analyzed.",
+                                )
+                                scan_settings["date_col"] = st.selectbox(
+                                    "Date Column (Optional)",
+                                    ["(None)"] + excel_columns,
+                                    key=f"xls_date_{idx}",
+                                    help="Pick a date-like column if you want the Trends tab and time slider to work.",
+                                )
+                                scan_settings["cat_col"] = st.selectbox(
+                                    "Category Column (Optional)",
+                                    ["(None)"] + excel_columns,
+                                    key=f"xls_cat_{idx}",
+                                    help="Optional grouping field for comparisons such as department, source, or content type.",
+                                )
+                                if scan_settings["date_col"] == "(None)":
+                                    scan_settings["date_col"] = None
+                                if scan_settings["cat_col"] == "(None)":
+                                    scan_settings["cat_col"] = None
+
+                                preview_df = get_excel_preview(
+                                    file_bytes,
+                                    scan_settings["sheet_name"],
+                                    scan_settings["has_header"],
+                                    rows=5,
+                                )
+                                if not preview_df.empty:
+                                    st.caption("Excel preview (first 5 data rows)")
+                                    st.dataframe(
+                                        preview_df,
+                                        use_container_width=True,
+                                        hide_index=True,
+                                    )
+                            else:
+                                st.warning("No columns were detected in the selected Excel sheet.")
                     elif is_json:
                         scan_settings["json_key"] = st.text_input("JSON Key (Optional)", "", key=f"json_{idx}", help="For line-delimited JSON objects, enter the field that contains the text to analyze.")
 
@@ -6696,16 +6915,31 @@ with tab_work:
                             file_bytes, "auto", ",", True, 
                             scan_settings["text_cols"], scan_settings["date_col"], scan_settings["cat_col"], " "
                         )
-                    elif is_xlsx and scan_settings["sheet_name"]:
+                    elif (
+                        is_xlsx
+                        and scan_settings["sheet_name"]
+                        and scan_settings["text_cols"]
+                    ):
                         rows_iter = iter_excel_structured(
-                            file_bytes, scan_settings["sheet_name"], scan_settings["has_header"], 
-                            ["col_0"], None, None, " " 
+                            file_bytes,
+                            scan_settings["sheet_name"],
+                            scan_settings["has_header"],
+                            scan_settings["text_cols"],
+                            scan_settings["date_col"],
+                            scan_settings["cat_col"],
+                            " ",
                         )
+                    elif is_xlsx:
+                        st.warning(
+                            "Choose at least one Excel text column in the file "
+                            "configuration panel before scanning."
+                        )
+                        continue
                     elif is_pdf:
                         rows_iter = read_rows_pdf(file_bytes)
                     elif is_pptx:
                         rows_iter = read_rows_pptx(file_bytes)
-                    elif is_vtt:
+                    elif is_transcript:
                         rows_iter = read_rows_vtt(
                             file_bytes,
                             excluded_speakers=proc_conf.excluded_speakers,
@@ -6799,7 +7033,7 @@ with tab_work:
             "🧭 Themes",
             "📈 Trends",
             "👥 Entities",
-            "🔑 Keyphrases",
+            "🔑 Distinctive Terms",
             "🏆 Maturity",
         ]
         if st.session_state.get("authenticated"):
@@ -7290,7 +7524,7 @@ with tab_work:
                 st.info("No capitalized entities detected.")
 
         with tab_key:
-            st.subheader("🔑 TF-IDF Keyphrases (The 'Technical DNA')")
+            st.subheader("🔑 TF-IDF-Style Distinctive Terms (The 'Technical DNA')")
             
             # 1 plain language explanation banner
             st.info(
@@ -7310,7 +7544,10 @@ with tab_work:
                     "Term": st.column_config.TextColumn("Term", help="The extracted vocabulary word."),
                     "TF (Count)": st.column_config.NumberColumn("TF (Count)", help="Term Frequency: Total number of times this word appears."),
                     "DF (Docs)": st.column_config.NumberColumn("DF (Docs)", help="Document Frequency: Number of distinct documents (or chunks) containing this word. Low DF = Specific."),
-                    "Keyphrase Score": st.column_config.NumberColumn("Keyphrase Score", help="Mathematical Uniqueness. Higher = More 'Technical' and less 'Generic'.")
+                    "Distinctiveness Score": st.column_config.NumberColumn(
+                        "Distinctiveness Score",
+                        help="Smoothed TF-IDF-style score. Higher values indicate terms that are both frequent and comparatively distinctive across document chunks.",
+                    )
                 }
             )
 
@@ -7809,7 +8046,7 @@ with tab_work:
                 value=False,
                 help=(
                     "Graph rendering can be heavy for dense corpora. Turn this on after "
-                    "reviewing the dashboard, themes, and keyphrases."
+                    "reviewing the dashboard, themes, and distinctive terms."
                 ),
             )
         )
@@ -8200,7 +8437,7 @@ with tab_work:
                 *   High Score (> 0.5): Strong association (e.g., "Artificial Intelligence").
                 *   Low Score (< 0.1): Random association (e.g., "of the").
                 """)
-                df_npmi = calculate_npmi(scanner.global_bigrams, combined_counts, scanner.total_rows_processed)
+                df_npmi = calculate_npmi(scanner.global_bigrams, combined_counts)
                 st.dataframe(df_npmi.head(top_n), use_container_width=True)
 
     # --- AI analyst (restored full mode)
