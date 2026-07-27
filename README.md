@@ -4,14 +4,16 @@
 
 ### Computational sensemaking for complex, unstructured text
 
-Turn reports, transcripts, datasets, presentations, public webpages, and large offline text collections into interpretable signals—without treating automated analysis as a substitute for human judgment.
+Turn reports, transcripts, datasets, presentations, public webpages, and large offline text collections into interpretable signals without treating automated analysis as a substitute for human judgment.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/built%20with-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#known-limitations)
+[![GitHub issues](https://img.shields.io/github/issues/peristron/signalfoundry_v3)](https://github.com/peristron/signalfoundry_v3/issues)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr/peristron/signalfoundry_v3)](https://github.com/peristron/signalfoundry_v3/pulls)
 
-[Overview](#overview) · [Capabilities](#capabilities) · [Quick start](#quick-start) · [Privacy](#privacy-and-data-handling) · [Methods](#analytical-foundations) · [Limitations](#known-limitations)
+[Overview](#overview) · [Capabilities](#capabilities) · [Quick start](#quick-start) · [Privacy](#privacy-and-data-handling) · [Methods](#analytical-foundations) · [Feedback](#feedback-questions-and-contributions)
 
 </div>
 
@@ -31,7 +33,11 @@ The application is designed to help a human analyst understand the shape of a re
 - Which excerpts deserve closer human review?
 
 > [!IMPORTANT]
-> Signal Foundry is an exploratory analysis and evidence-organization tool. Its outputs are structured leads—not verified facts, final conclusions, or substitutes for domain expertise.
+> Signal Foundry is an exploratory analysis and evidence-organization tool. Its outputs are structured leads, not verified facts, final conclusions, or substitutes for domain expertise.
+
+### Feedback is welcome
+
+The easiest way to ask a question, report a problem, suggest an improvement, or provide general feedback is to [open a GitHub Issue](https://github.com/peristron/signalfoundry_v3/issues/new). If you have a concrete code or documentation change, please submit a [pull request](https://github.com/peristron/signalfoundry_v3/pulls).
 
 ## Why Signal Foundry?
 
@@ -50,7 +56,7 @@ It is especially useful for:
 - strategy, policy, and planning documents;
 - support cases, survey responses, and feedback collections;
 - client notes and implementation records;
-- CSV-based text datasets;
+- CSV- and Excel-based text datasets;
 - large or sensitive datasets processed through the offline harvester.
 
 ## Capabilities
@@ -60,9 +66,9 @@ It is especially useful for:
 | Input | Current support | Important notes |
 |---|---:|---|
 | CSV | Supported | Select one or more text columns and optional date/category columns. Batch mode uses the first detected column as a safe default. |
-| Excel `.xlsx` | Experimental | Sheet/header controls are present, but named text/date/category selection is not fully implemented. Convert to CSV for reliable structured analysis. |
+| Excel `.xlsx`, `.xlsm` | Supported | Select a worksheet, indicate whether it has a header, preview the data, and choose text/date/category columns. Batch mode uses the first named column of the first worksheet. Macros are not executed. |
 | Plain text `.txt` | Supported | Common UTF-8, UTF-8 BOM, and UTF-16 text/transcript encodings are detected. |
-| WebVTT `.vtt` | Supported | Transcript timestamps, cues, speaker labels, and selected speakers can be cleaned or excluded. |
+| WebVTT `.vtt`, SubRip `.srt` | Supported | Transcript timestamps, cue identifiers, speaker labels, and selected speakers can be cleaned or excluded. |
 | PDF `.pdf` | Supported for embedded text | Image-only or scanned PDFs require OCR before upload. |
 | PowerPoint `.pptx` | Supported for text frames | Extracts text from slide shapes; embedded images and charts are not interpreted. |
 | JSON / JSONL `.json` | Supported | Line-delimited objects can be scanned using an optional text-field key. |
@@ -71,7 +77,7 @@ It is especially useful for:
 | Public webpage URLs | Basic support | Best for static, publicly accessible pages. JavaScript-rendered, authenticated, restricted, or paywalled pages may not work. |
 
 > [!NOTE]
-> The current upload control does not accept `.srt`, `.xls`, or `.xlsm`. Convert these files to a supported format before scanning.
+> Legacy `.xls` workbooks are not supported. Convert them to `.xlsx`, `.xlsm`, or CSV before scanning.
 
 ### Analysis outputs
 
@@ -125,13 +131,13 @@ Raw source text is cleaned and transformed into counts, document-frequency infor
 1. Decide whether the next scan should clear the existing session or add to it.
 2. Configure cleaning, stopwords, transcript handling, and document granularity.
 3. Upload files, paste text or URLs, or load an offline sketch.
-4. For structured CSV data, select text, date, and category columns.
+4. For structured CSV or Excel data, select text, date, and category columns.
 5. Run the scan.
 6. Start with the Executive Signal Dashboard.
 7. Read Signal Compass and Resource Shape.
 8. Inspect Supporting Insight Cards and their representative evidence.
 9. Review the Word Cloud and top terms for boilerplate or cleaning problems.
-10. Use Themes, Entities, Keyphrases, Trends, and Graphs as needed.
+10. Use Themes, Entities, Distinctive Terms, Trends, and Graphs as needed.
 11. Use a maturity lens only when the source material matches its intended domain.
 12. Use the AI Analyst after the visible outputs look reasonable.
 13. Use Calibration Export when comparing runs or tuning the analysis.
@@ -230,36 +236,40 @@ Best for most users.
 1. Open **Analyze Documents**.
 2. Configure cleaning and scan settings in the sidebar.
 3. Upload one or more supported files, paste text, or paste public URLs.
-4. Expand the configuration panel for any structured CSV file.
+4. Expand the configuration panel for any structured CSV or Excel file.
 5. Start the individual or batch scan.
 6. Review the dashboard in the recommended reading order.
 
-### Path B: Structured CSV analysis
+### Path B: Structured CSV or Excel analysis
 
 Use this path when the dataset has meaningful columns.
 
-1. Upload a CSV.
+1. Upload a CSV, XLSX, or XLSM file.
 2. Expand its configuration panel.
-3. Select one or more text columns.
-4. Optionally select:
+3. For Excel, select the worksheet and indicate whether the first row is a header.
+4. Select one or more text columns.
+5. Review the optional Excel preview when applicable.
+6. Optionally select:
    - a date column for trends and temporal drift;
    - a category column for group comparisons.
-5. Scan the file individually.
+7. Scan the file individually.
 
-For dependable named-column analysis, CSV is currently recommended over Excel.
+Batch scanning intentionally uses the first detected CSV column or the first named column of the first Excel worksheet. Scan structured files individually when you need explicit column, date, category, worksheet, or header control.
 
 ### Path C: Meeting transcripts
 
-1. Enable **Transcript Cleanup Mode** before scanning.
-2. Keep **Strip speaker labels from analyzed text** enabled unless names are analytically important.
-3. Keep **Drop very short filler utterances** enabled for a first pass.
-4. Select detected speakers—or enter labels manually—when complete utterances should be excluded.
-5. Leave partial speaker matching disabled unless broader matching is intentional.
-6. Start with a **Rows per Doc** value between 1 and 5.
+1. Upload a VTT, SRT, or transcript-style TXT file.
+2. Enable **Transcript Cleanup Mode** before scanning.
+3. Keep **Strip speaker labels from analyzed text** enabled unless names are analytically important.
+4. Keep **Drop very short filler utterances** enabled for a first pass.
+5. Select detected speakers, or enter labels manually, when complete utterances should be excluded.
+6. Leave partial speaker matching disabled unless broader matching is intentional.
+7. Start with a **Rows per Doc** value between 1 and 5.
 
 Transcript cleanup can remove or reduce:
 
 - timestamps and caption cues;
+- VTT and SRT cue identifiers;
 - transcript system messages;
 - speaker prefixes;
 - short acknowledgements and filler utterances;
@@ -317,7 +327,7 @@ Use it only after sanitizing the source. It is a file-preparation utility, not a
 5. **Word Cloud & Stats**  
    Check whether boilerplate, headers, names, or transcript artifacts dominate.
 
-6. **Themes, Entities, Keyphrases, Trends, and Graphs**  
+6. **Themes, Entities, Distinctive Terms, Trends, and Graphs**  
    Use deeper views to test and refine the first-pass interpretation.
 
 7. **Maturity**  
@@ -443,6 +453,8 @@ Frequency answers:
 
 Normalized Pointwise Mutual Information estimates how strongly adjacent word pairs are associated relative to their individual frequencies. A minimum observed frequency is applied to reduce extremely rare pairings.
 
+Every NPMI view derives its denominator consistently from the active unigram token counts. This keeps the auto-generated signal report, theme cards, calibration export, and frequency-table view aligned for the same active vocabulary.
+
 NPMI is used directionally to answer:
 
 > Which adjacent terms appear together more strongly than their separate frequencies would suggest?
@@ -458,9 +470,9 @@ Signal Foundry uses a simplified sketch-oriented term score based on:
 
 - global term frequency;
 - document frequency across synthetic document chunks;
-- an inverse-document-frequency adjustment.
+- a smoothed inverse-document-frequency adjustment.
 
-Only terms appearing in more than one document chunk are considered. This is a custom directional implementation rather than a full phrase-extraction pipeline.
+Only terms appearing in more than one document chunk are considered. The smoothed calculation avoids negative IDF values when a term appears throughout the retained document set. This is a custom directional implementation rather than a full phrase-extraction pipeline.
 
 It helps answer:
 
@@ -559,7 +571,7 @@ The score is intended to make ranking decisions inspectable. It is not a validat
 
 The application looks for contextual cues indicating that a concept may be rejected, limited, contrasted, or used only as comparison. Examples include “not,” “rather than,” “instead,” and similar qualifying constructions.
 
-This layer reduces—but cannot eliminate—the risk of treating a mentioned idea as an endorsed or central claim.
+This layer reduces, but cannot eliminate, the risk of treating a mentioned idea as an endorsed or central claim.
 
 </details>
 
@@ -617,7 +629,7 @@ A package can include:
 - corpus statistics;
 - top terms and bigrams;
 - NPMI tables;
-- TF-IDF-style term tables;
+- TF-IDF-style distinctive-term tables (`tfidf_keyphrases.csv` is retained as the established export filename);
 - entities;
 - evidence snippets when full export is selected;
 - explanatory calibration notes.
@@ -633,7 +645,8 @@ Useful applications include:
 ## Known limitations
 
 - Signal Foundry is primarily English-oriented.
-- Excel support is experimental; CSV is recommended for structured named-column analysis.
+- Excel analysis reads cell values, not charts, images, comments, or macro code. Macros in `.xlsm` files are not executed.
+- Formula cells depend on cached workbook values. Recalculate and save the workbook in Excel first if current formula results are important.
 - PDF extraction does not perform OCR.
 - URL extraction does not execute JavaScript or bypass authentication and access controls.
 - Entity extraction is pattern-based and is not equivalent to a trained NER model.
@@ -667,7 +680,15 @@ pip install -r requirements.txt
 <details>
 <summary><strong>An Excel scan is empty or incomplete</strong></summary>
 
-Convert the workbook to CSV and scan it individually. The current CSV path provides reliable text-, date-, and category-column selection; the Excel path remains experimental.
+- Scan the workbook individually rather than through batch mode.
+- Confirm the selected worksheet.
+- Confirm whether **Has Header Row** matches the workbook.
+- Select at least one text column.
+- Check the five-row preview before scanning.
+- Recalculate and save formula-heavy workbooks in Excel so cached values are available.
+- Remember that charts, images, comments, and VBA macros are not analyzed.
+
+If the workbook remains difficult to interpret, save the relevant worksheet as CSV and scan that file.
 
 </details>
 
@@ -699,7 +720,7 @@ If needed, copy the relevant text and use **Manual Text Paste**.
 - Add recurring artifacts to custom stopwords.
 - Enable transcript cleanup for meeting exports.
 - Exclude irrelevant speakers.
-- Confirm that the correct CSV text column was selected.
+- Confirm that the correct CSV or Excel text column was selected.
 - Re-scan with **Clear previous data** enabled.
 
 </details>
@@ -730,7 +751,7 @@ If needed, copy the relevant text and use **Manual Text Paste**.
 <details>
 <summary><strong>Trends or comparisons do not appear</strong></summary>
 
-Scan a CSV individually and select valid date and category columns. Trends require parseable dates; contrastive analysis requires at least two categories.
+Scan a CSV or Excel file individually and select valid date and category columns. Trends require parseable dates; contrastive analysis requires at least two categories.
 
 </details>
 
@@ -773,8 +794,10 @@ Recommended checks after significant changes:
 - start the Streamlit application from a clean environment;
 - scan a representative CSV or TXT file;
 - test a text-based PDF and PowerPoint;
-- test transcript cleanup and speaker exclusion;
-- test category and date analysis with a structured CSV;
+- test VTT and SRT transcript cleanup and speaker exclusion;
+- test category and date analysis with structured CSV and Excel files;
+- compare NPMI values across the signal report, theme cards, table view, and calibration export;
+- confirm that calibration packages retain the established `tfidf_keyphrases.csv` filename;
 - generate at least one CSV, PNG, GEXF, JSON, and calibration ZIP export;
 - test offline sketch generation and loading;
 - test both additive and clear-on-scan behaviour;
@@ -783,16 +806,32 @@ Recommended checks after significant changes:
 
 When the application stabilizes further, useful engineering improvements include:
 
-- completing and testing structured Excel column selection;
-- adding explicit SRT support;
 - adding OCR as an optional preprocessing path;
-- expanding automated reader and analysis tests;
-- normalizing analytical calculations across every view;
-- separating the large Streamlit entry point into focused reader, analysis, visualization, configuration, and UI modules.
+- expanding automated reader, calculation, and interface tests;
+- adding continuous integration for compilation and regression checks;
+- adding sanitized sample corpora and expected-output fixtures;
+- making provider model identifiers and cost assumptions easier to update.
 
-## Contributing
+## Project status and affiliation
 
-Issues and focused pull requests are welcome. When reporting a problem, include:
+This is my own independent project. It is not affiliated with, endorsed by, sponsored by, or developed on behalf of my employer or any other organization.
+
+Signal Foundry uses open-source libraries under their applicable licences. References to third-party products, providers, or platforms are descriptive and do not imply endorsement or affiliation.
+
+## Feedback, questions, and contributions
+
+Questions, feedback, suggestions, bug reports, and focused pull requests are welcome.
+
+| If you want to... | Recommended GitHub route |
+|---|---|
+| Ask a question about the application | [Open an Issue](https://github.com/peristron/signalfoundry_v3/issues/new) |
+| Report a bug or unexpected result | [Open an Issue](https://github.com/peristron/signalfoundry_v3/issues/new) |
+| Suggest a feature, workflow, or documentation improvement | [Open an Issue](https://github.com/peristron/signalfoundry_v3/issues/new) |
+| Propose a specific code or documentation change | [Submit a Pull Request](https://github.com/peristron/signalfoundry_v3/pulls) |
+
+For a substantial change, opening an Issue first is recommended so the proposed direction can be discussed before implementation.
+
+When reporting a problem, please include:
 
 - the input format;
 - the relevant settings;
@@ -801,7 +840,8 @@ Issues and focused pull requests are welcome. When reporting a problem, include:
 - the expected and observed result;
 - a sanitized example when possible.
 
-Do not include confidential source material, API keys, passwords, or private evidence excerpts in issues.
+> [!CAUTION]
+> Do not include confidential source material, API keys, passwords, personal information, client-identifiable content, or private evidence excerpts in Issues or pull requests.
 
 ## License
 
@@ -812,4 +852,3 @@ Signal Foundry is available under the [MIT License](LICENSE).
 Signal Foundry is built around a simple principle:
 
 > Preserve raw text only when needed, convert it into inspectable mathematical signal as early as practical, and make every output understandable enough for a human analyst to challenge.
-
