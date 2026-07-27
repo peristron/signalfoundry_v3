@@ -2650,14 +2650,16 @@ def calculate_tfidf(scanner: StreamScanner, top_n=50) -> pd.DataFrame:
             "Term": term,
             "TF (Count)": tf,
             "DF (Docs)": df,
-            "Distinctiveness Score": round(score, 2),
+            # Preserve the established machine-facing column name for export
+            # compatibility. The UI presents this as "Distinctiveness Score."
+            "Keyphrase Score": round(score, 2),
         })
     
     df = pd.DataFrame(results)
     if df.empty:
         return df
     return df.sort_values(
-        ["Distinctiveness Score", "TF (Count)", "Term"],
+        ["Keyphrase Score", "TF (Count)", "Term"],
         ascending=[False, False, True],
     ).head(top_n)
 
@@ -2710,7 +2712,7 @@ def build_theme_evidence_cards(scanner: StreamScanner, counts: Counter, top_n: i
     npmi_df = calculate_npmi(scanner.global_bigrams, counts)
     tfidf_df = calculate_tfidf(scanner, 100)
     tfidf_scores = {
-        row["Term"]: row["Distinctiveness Score"]
+        row["Term"]: row["Keyphrase Score"]
         for _, row in tfidf_df.iterrows()
     } if not tfidf_df.empty else {}
 
@@ -2763,7 +2765,7 @@ def build_theme_evidence_cards(scanner: StreamScanner, counts: Counter, top_n: i
 def build_signal_quadrant_df(scanner: StreamScanner, counts: Counter, top_n: int = 150) -> pd.DataFrame:
     tfidf_df = calculate_tfidf(scanner, top_n)
     tfidf_scores = {
-        row["Term"]: row["Distinctiveness Score"]
+        row["Term"]: row["Keyphrase Score"]
         for _, row in tfidf_df.iterrows()
     } if not tfidf_df.empty else {}
 
@@ -6065,7 +6067,7 @@ def build_calibration_export_zip(
         zf.writestr("top_bigrams.csv", dataframe_to_csv_bytes(top_bigrams_dataframe(scanner.global_bigrams, 150)))
         zf.writestr("top_entities.csv", dataframe_to_csv_bytes(counter_dataframe(scanner.entity_counts, "Entity", top_n=100)))
         zf.writestr("npmi_phrases.csv", dataframe_to_csv_bytes(npmi_df.head(150)))
-        zf.writestr("tfidf_distinctive_terms.csv", dataframe_to_csv_bytes(tfidf_df.head(150)))
+        zf.writestr("tfidf_keyphrases.csv", dataframe_to_csv_bytes(tfidf_df.head(150)))
         zf.writestr("evidence_snippets.csv", dataframe_to_csv_bytes(evidence_df))
         zf.writestr(
             "README.txt",
@@ -7544,7 +7546,7 @@ with tab_work:
                     "Term": st.column_config.TextColumn("Term", help="The extracted vocabulary word."),
                     "TF (Count)": st.column_config.NumberColumn("TF (Count)", help="Term Frequency: Total number of times this word appears."),
                     "DF (Docs)": st.column_config.NumberColumn("DF (Docs)", help="Document Frequency: Number of distinct documents (or chunks) containing this word. Low DF = Specific."),
-                    "Distinctiveness Score": st.column_config.NumberColumn(
+                    "Keyphrase Score": st.column_config.NumberColumn(
                         "Distinctiveness Score",
                         help="Smoothed TF-IDF-style score. Higher values indicate terms that are both frequent and comparatively distinctive across document chunks.",
                     )
