@@ -820,7 +820,7 @@ Signal Foundry uses open-source libraries under their applicable licences. Refer
 
 ## Feedback, questions, and contributions
 
-Questions, feedback, suggestions, bug reports, and focused pull requests are welcome.
+Questions, feedback, suggestions, bug reports, and focused pull requests are welcome (and yes, I already know this code-base is too monolithic~).
 
 | If you want to... | Recommended GitHub route |
 |---|---|
